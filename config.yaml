@@ -1,0 +1,42 @@
+schedule:
+  cron: "0 */2 * * *"
+
+sources:
+  - type: rss
+    name: "sspai_index"
+    url: "http://127.0.0.1:1200/sspai/index"
+  - type: rss
+    name: "36kr_ai_search"
+    url: "http://127.0.0.1:1200/36kr/search/articles/AI"
+  - type: rss
+    name: "36kr_newsflashes"
+    url: "http://127.0.0.1:1200/36kr/newsflashes"
+
+filters:
+  allow_keywords: ["AI", "工具", "模型", "生成", "自动", "开源", "GitHub", "DeepSeek", "免费"]
+  deny_keywords: ["招聘", "课程", "卖课", "早报", "融资", "讲座", "峰会"]
+  min_score: 7
+
+llm:
+  enabled: false
+  provider: openai
+  api_base: "https://api.hunyuan.cloud.tencent.com/v1"
+  api_key_env: "OPENAI_API_KEY"
+  model: "hunyuan-2.0-instruct-20251111"
+  temperature: 0.7
+  filter_system_prompt: "你是一个苛刻的硅谷科技博主。我将给你一段关于中国新 AI 工具的描述。请按 1-10 分打分。打分标准：1. 全球通用性（不需要懂中文也能用）；2. 创新性（不是简单的套壳 GPT）；3. 视觉冲击力（是否有 Demo 视频/图）。如果分数低于 7 分，输出 FALSE；如果高于 7 分，输出 TRUE 并解释亮点。"
+  filter_user_prompt: "标题：{title}\n链接：{url}\n简介：{description}\n评论：{comments}"
+  creator_system_prompt: ""
+  creator_user_prompt: "这里有一个来自中国的 AI 工具：\n标题：{title}\n链接：{url}\n简介：{description}\n评论：{comments}\n\n请为 Twitter (X) 写一个英文 Thread（推文串）：\n1. Hook: 必须吸引眼球，使用'Better than X'或'Crazy AI tool'等钩子，带上 emoji。\n2. Body: 简述它解决了什么痛点，列出 3 个核心功能（用 bullet points）。\n3. Use Case: 给出一个具体的使用场景。\n4. Action: 引导点击链接。\n5. Tags: 使用 #AI #Tech #ChinaTech #DeepSeek 等标签。\n语气风格：像 @HeyBarsee 或 @RowanCheung 那样专业但兴奋。"
+
+media:
+  download_dir: "media"
+  max_mb: 50
+
+storage:
+  sqlite_path: "scout.db"
+
+notifier:
+  feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/77b7266c-a713-42aa-814c-178241476827"
+  telegram_bot_token_env: null
+  telegram_chat_id: null
