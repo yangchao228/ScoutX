@@ -11,6 +11,7 @@ from scout_pipeline.extractor import normalize_items
 from scout_pipeline.media import download_media
 from scout_pipeline.models import TweetThread
 from scout_pipeline.notifier import notify
+from scout_pipeline.report_store import record_report
 
 
 def apply_keyword_filters(items: List, allow: list[str], deny: list[str]) -> List:
@@ -43,4 +44,5 @@ def run_once(config: AppConfig) -> None:
         else:
             summary = f"{item.title}\n{item.url}\n\n{item.description}".strip()
             thread = TweetThread(tweets=[summary])
+        record_report(config.storage.sqlite_path, item, thread)
         notify(config.notifier, item, thread)
