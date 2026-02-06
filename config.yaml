@@ -3,9 +3,6 @@ schedule:
 
 sources:
   - type: rss
-    name: "sspai_index"
-    url: "http://127.0.0.1:1200/sspai/index"
-  - type: rss
     name: "36kr_ai_search"
     url: "http://127.0.0.1:1200/36kr/search/articles/AI"
   - type: rss
