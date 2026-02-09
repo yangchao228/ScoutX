@@ -8,6 +8,21 @@ sources:
   - type: rss
     name: "36kr_newsflashes"
     url: "http://127.0.0.1:1200/36kr/newsflashes"
+  - type: rss
+    name: "qbitai_llm_tag"
+    url: "http://127.0.0.1:1200/qbitai/tag/%E5%A4%A7%E8%AF%AD%E8%A8%80%E6%A8%A1%E5%9E%8B"
+  - type: rss
+    name: "tmtpost_agi_column"
+    url: "http://127.0.0.1:1200/tmtpost/column/6916385"
+  - type: rss
+    name: "geekpark_home"
+    url: "http://127.0.0.1:1200/geekpark"
+  - type: rss
+    name: "huxiu_search_ai"
+    url: "http://127.0.0.1:1200/huxiu/search/AI"
+  - type: rss
+    name: "tisi_latest"
+    url: "http://127.0.0.1:1200/tisi/latest"
 
 filters:
   allow_keywords: ["AI", "工具", "模型", "生成", "自动", "开源", "GitHub", "DeepSeek", "免费"]
