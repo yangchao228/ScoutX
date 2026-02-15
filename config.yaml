@@ -23,6 +23,15 @@ sources:
   - type: rss
     name: "tisi_latest"
     url: "http://127.0.0.1:1200/tisi/latest"
+  - type: rss
+    name: "jiqizhixin_wechat"
+    url: "http://127.0.0.1:1200/wechat/sogou/almosthuman2014"
+  - type: rss
+    name: "qbitai_wechat"
+    url: "http://127.0.0.1:1200/wechat/sogou/QbitAI"
+  - type: rss
+    name: "ai_front_wechat"
+    url: "http://127.0.0.1:1200/wechat/sogou/ai-front"
 
 filters:
   allow_keywords: ["AI", "工具", "模型", "生成", "自动", "开源", "GitHub", "DeepSeek", "免费"]

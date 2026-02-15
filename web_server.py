@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from scout_pipeline.report_store import fetch_reports, list_report_dates
-from scout_pipeline.utils import load_config
+from scout_pipeline.utils_temp import load_config
 
 CONFIG_PATH = "config.yaml"
 
@@ -215,7 +215,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ScoutX daily report web server")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
     global CONFIG_PATH
