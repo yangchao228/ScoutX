@@ -51,11 +51,11 @@ llm:
   creator_user_prompt: "这里有一个来自中国的 AI 工具：\n标题：{title}\n链接：{url}\n简介：{description}\n评论：{comments}\n\n请为 Twitter (X) 写一个英文 Thread（推文串）：\n1. Hook: 必须吸引眼球，使用'Better than X'或'Crazy AI tool'等钩子，带上 emoji。\n2. Body: 简述它解决了什么痛点，列出 3 个核心功能（用 bullet points）。\n3. Use Case: 给出一个具体的使用场景。\n4. Action: 引导点击链接。\n5. Tags: 使用 #AI #Tech #ChinaTech #DeepSeek 等标签。\n语气风格：像 @HeyBarsee 或 @RowanCheung 那样专业但兴奋。"
 
 media:
-  download_dir: "media"
-  max_mb: 50
+  download_dir: "media_e2e"
+  max_mb: 0
 
 storage:
-  sqlite_path: "scout.db"
+  sqlite_path: "scout_e2e.db"
 
 notifier:
   feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/77b7266c-a713-42aa-814c-178241476827"

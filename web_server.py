@@ -3,15 +3,16 @@ from __future__ import annotations
 import html
 from datetime import date
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from scout_pipeline.report_store import fetch_reports, list_report_dates
 from scout_pipeline.utils import load_config
 
-CONFIG_PATH = "config.yaml"
+config_path = "config.yaml"
 
 
-def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list[dict]) -> str:
+def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list[dict[str, Any]]) -> str:
     date_links = "\n".join(
         [
             f"<a class='date-link{' active' if d == selected_date else ''}' href='/?date={d}'>"
@@ -188,7 +189,7 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._write_response(404, "Not Found", "text/plain; charset=utf-8")
             return
 
-        config = load_config(CONFIG_PATH)
+        config = load_config(config_path)
         sqlite_path = config.storage.sqlite_path
         dates = list_report_dates(sqlite_path)
         if dates and requested not in [d for d, _ in dates]:
@@ -215,11 +216,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ScoutX daily report web server")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
-    global CONFIG_PATH
-    CONFIG_PATH = args.config
+    global config_path
+    config_path = args.config
 
     server = HTTPServer((args.host, args.port), ReportHandler)
     print(f"ScoutX web server running on {args.host}:{args.port}")

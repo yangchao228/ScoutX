@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import calendar
+from datetime import datetime, timezone
 from typing import List
 from urllib.parse import urljoin
 
@@ -11,13 +13,41 @@ from scout_pipeline.config import HTMLSource, RSSSource
 from scout_pipeline.models import Item, MediaAsset
 
 
+def _extract_entry_published_at(entry: object) -> str | None:
+    for attr in ("published_parsed", "updated_parsed", "created_parsed"):
+        parsed = getattr(entry, attr, None)
+        if not parsed:
+            continue
+        try:
+            ts = calendar.timegm(parsed)
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        except Exception:
+            continue
+    return None
+
+
 def collect_rss(source: RSSSource) -> List[Item]:
-    feed = feedparser.parse(str(source.url))
+    response = requests.get(
+        str(source.url),
+        timeout=30,
+        headers={
+            "User-Agent": "Mozilla/5.0 (ScoutX/1.0; +https://github.com/)",
+            "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
+        },
+    )
+    response.raise_for_status()
+    feed = feedparser.parse(response.content)
+
+    if getattr(feed, "bozo", 0) and not feed.entries:
+        raise RuntimeError(f"Invalid RSS feed: {source.name} ({source.url})")
+
     items: List[Item] = []
     for entry in feed.entries:
         title = getattr(entry, "title", "").strip()
         url = getattr(entry, "link", "").strip()
         description = getattr(entry, "summary", "").strip()
+        if not description and hasattr(entry, "description"):
+            description = str(getattr(entry, "description", "")).strip()
         comments = []
         if hasattr(entry, "comments") and entry.comments:
             comments = [str(entry.comments)]
@@ -27,12 +57,16 @@ def collect_rss(source: RSSSource) -> List[Item]:
             if link.get("rel") == "enclosure" and link.get("href"):
                 media.append(MediaAsset(url=link["href"], media_type=_guess_media_type(link["href"])))
 
+        if not title and not url:
+            continue
+
         items.append(
             Item(
                 source=source.name,
                 title=title,
                 url=url,
                 description=description,
+                published_at=_extract_entry_published_at(entry),
                 comments=comments,
                 media=media,
                 raw={"entry": entry},
@@ -105,6 +139,7 @@ def collect_html(source: HTMLSource) -> List[Item]:
                 title=str(title),
                 url=url,
                 description=str(description),
+                published_at=None,
                 comments=comments,
                 media=media,
                 raw={"row_html": str(row)},
@@ -116,8 +151,13 @@ def collect_html(source: HTMLSource) -> List[Item]:
 def collect_sources(sources: List[RSSSource | HTMLSource]) -> List[Item]:
     items: List[Item] = []
     for source in sources:
-        if isinstance(source, RSSSource):
-            items.extend(collect_rss(source))
-        else:
-            items.extend(collect_html(source))
+        try:
+            if isinstance(source, RSSSource):
+                source_items = collect_rss(source)
+            else:
+                source_items = collect_html(source)
+            items.extend(source_items)
+            print(f"[collector] {source.name}: {len(source_items)} items")
+        except Exception as exc:
+            print(f"[collector][warn] {source.name} failed: {exc}")
     return items
