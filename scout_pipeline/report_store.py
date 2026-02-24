@@ -4,12 +4,12 @@ import hashlib
 import json
 import sqlite3
 from datetime import date
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 from scout_pipeline.models import Item, TweetThread
 
 
-def _fingerprint(item: Item) -> str:
+def fingerprint_item(item: Item) -> str:
     key = (item.url or item.title).encode("utf-8")
     return hashlib.md5(key).hexdigest()
 
@@ -24,11 +24,25 @@ def _init_db(sqlite_path: str) -> None:
                 source TEXT NOT NULL,
                 title TEXT NOT NULL,
                 url TEXT NOT NULL,
+                published_at TEXT,
                 description TEXT NOT NULL,
                 comments_json TEXT NOT NULL,
                 media_json TEXT NOT NULL,
                 thread_json TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(reports)")}
+        if "published_at" not in columns:
+            conn.execute("ALTER TABLE reports ADD COLUMN published_at TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS push_records (
+                channel TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                pushed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (channel, item_id)
             )
             """
         )
@@ -50,15 +64,15 @@ def record_report(sqlite_path: str, item: Item, thread: TweetThread) -> None:
         ensure_ascii=False,
     )
     thread_json = json.dumps(thread.tweets, ensure_ascii=False)
-    fingerprint = _fingerprint(item)
+    fingerprint = fingerprint_item(item)
 
     with sqlite3.connect(sqlite_path) as conn:
         conn.execute(
             """
             INSERT OR IGNORE INTO reports (
-                id, report_date, source, title, url, description,
+                id, report_date, source, title, url, published_at, description,
                 comments_json, media_json, thread_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 fingerprint,
@@ -66,6 +80,7 @@ def record_report(sqlite_path: str, item: Item, thread: TweetThread) -> None:
                 item.source,
                 item.title,
                 item.url,
+                item.published_at,
                 item.description,
                 comments_json,
                 media_json,
@@ -90,13 +105,53 @@ def list_report_dates(sqlite_path: str, limit: int = 30) -> List[Tuple[str, int]
         return [(row[0], int(row[1])) for row in cur.fetchall()]
 
 
+def filter_unpushed_items(
+    sqlite_path: str,
+    channel: str,
+    items_with_threads: Iterable[tuple[Item, TweetThread]],
+) -> tuple[list[tuple[Item, TweetThread]], int]:
+    _init_db(sqlite_path)
+    kept: list[tuple[Item, TweetThread]] = []
+    skipped = 0
+    with sqlite3.connect(sqlite_path) as conn:
+        for item, thread in items_with_threads:
+            item_id = fingerprint_item(item)
+            cur = conn.execute(
+                "SELECT 1 FROM push_records WHERE channel=? AND item_id=?",
+                (channel, item_id),
+            )
+            if cur.fetchone():
+                skipped += 1
+                continue
+            kept.append((item, thread))
+    return kept, skipped
+
+
+def mark_items_pushed(
+    sqlite_path: str,
+    channel: str,
+    items_with_threads: Iterable[tuple[Item, TweetThread]],
+) -> int:
+    _init_db(sqlite_path)
+    count = 0
+    with sqlite3.connect(sqlite_path) as conn:
+        for item, _thread in items_with_threads:
+            item_id = fingerprint_item(item)
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO push_records (channel, item_id) VALUES (?, ?)",
+                (channel, item_id),
+            )
+            count += int(cur.rowcount or 0)
+    return count
+
+
 def fetch_reports(sqlite_path: str, report_date: str) -> List[Dict[str, Any]]:
     _init_db(sqlite_path)
     with sqlite3.connect(sqlite_path) as conn:
         cur = conn.execute(
             """
             SELECT source, title, url, description,
-                   comments_json, media_json, thread_json, created_at
+                   published_at, comments_json, media_json, thread_json, created_at
             FROM reports
             WHERE report_date = ?
             ORDER BY created_at DESC
@@ -111,10 +166,11 @@ def fetch_reports(sqlite_path: str, report_date: str) -> List[Dict[str, Any]]:
                     "title": row[1],
                     "url": row[2],
                     "description": row[3],
-                    "comments": json.loads(row[4]) if row[4] else [],
-                    "media": json.loads(row[5]) if row[5] else [],
-                    "thread": json.loads(row[6]) if row[6] else [],
-                    "created_at": row[7],
+                    "published_at": row[4],
+                    "comments": json.loads(row[5]) if row[5] else [],
+                    "media": json.loads(row[6]) if row[6] else [],
+                    "thread": json.loads(row[7]) if row[7] else [],
+                    "created_at": row[8],
                 }
             )
         return rows
