@@ -89,3 +89,142 @@ PY
 - 飞书 webhook 返回 `{"code":0,"msg":"success"}`
 - `.gitignore` 不提交运行产物（DB、media、日志）
 
+## 腾讯云 CVM 部署指南（Docker Compose）
+
+目标：在腾讯云 CVM（Ubuntu/CentOS）上用 Docker Compose 长期运行 `rsshub + scoutx-web + scoutx-scheduler`，并保证 `scout.db/media/config.yaml` 持久化。
+
+### 1) 基础准备（安全组 + 系统）
+
+- 安全组放通：
+  - `22/tcp`（SSH）
+  - `9000/tcp`（ScoutX Web，默认对外；也可以只对内网/办公 IP 放通）
+  - **建议不要对公网暴露 `1200/tcp`（RSSHub）**：当前 `docker-compose.yml` 映射了 `1200:1200`，生产上建议移除映射或用安全组限制来源 IP。
+- 若使用 Nginx/HTTPS 反代，建议把 `docker-compose.yml` 的端口映射改为 `127.0.0.1:9000:9000`（仅本机可访问），并在安全组只开放 `80/443`。
+- 建议系统时区：`Asia/Shanghai`（虽然项目逻辑已按北京时间做推送窗口，但日志/排障更直观）
+
+### 2) 安装 Docker / Compose（Ubuntu 示例）
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin git
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+docker version
+docker compose version
+```
+
+（可选）国内网络建议配置镜像加速器（避免拉镜像超时），示例：
+
+```bash
+sudo mkdir -p /etc/docker
+cat <<'JSON' | sudo tee /etc/docker/daemon.json
+{
+  "registry-mirrors": ["https://mirror.ccs.tencentyun.com"]
+}
+JSON
+sudo systemctl restart docker
+```
+
+### 3) 拉代码与准备持久化目录
+
+建议部署目录：`/opt/scoutx`
+
+```bash
+sudo mkdir -p /opt/scoutx
+sudo chown -R $USER:$USER /opt/scoutx
+cd /opt/scoutx
+git clone https://github.com/yangchao228/ScoutX.git .
+```
+
+创建持久化文件/目录（非常重要，避免 SQLite “unable to open database file”）：
+
+```bash
+cd /opt/scoutx
+mkdir -p media
+test -f scout.db || touch scout.db
+```
+
+### 4) 配置（生产建议：单独一份 config）
+
+- 建议复制一份：`config.prod.yaml`（避免和仓库默认配置混用）
+- 至少确认：
+  - `storage.sqlite_path: "scout.db"`（与 docker volume 一致）
+  - `notifier.feishu_webhook` 已配置
+  - `schedule.cron` 仅 `8/12/16/20`（当前默认已是 `0 8,12,16,20 * * *`）
+  - `llm.enabled` 默认 `false`（要开启时再配 API Key）
+
+```bash
+cp config.yaml config.prod.yaml
+vim config.prod.yaml
+```
+
+然后把 compose 挂载的配置改成生产配置（两种方式二选一）：
+
+- 方式 A：直接替换 `config.yaml`（最省事）
+  - 把 `config.prod.yaml` 覆盖到 `config.yaml`
+- 方式 B：改 `docker-compose.yml` 的挂载（更清晰）
+  - 把 `./config.yaml:/app/config.yaml` 改为 `./config.prod.yaml:/app/config.yaml`
+
+### 5) 启动服务
+
+```bash
+cd /opt/scoutx
+docker compose pull rsshub
+docker compose build
+docker compose up -d
+docker ps
+```
+
+验证：
+
+```bash
+curl -sS http://127.0.0.1:9000/health
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9000/
+```
+
+### 6) 运行与运维常用命令
+
+查看日志：
+
+```bash
+docker logs --tail 200 -f scoutx-scheduler
+docker logs --tail 200 -f scoutx-web
+docker logs --tail 200 -f scoutx-rsshub
+```
+
+手动跑一轮采集（不触发整点推送时段也可以验证主链路）：
+
+```bash
+docker exec scoutx-scheduler python main.py --config config.yaml --once
+```
+
+强制触发飞书推送（用于验收/补推；即使非整点也会推）：
+
+```bash
+docker exec -e SCOUTX_FORCE_FEISHU_PUSH=1 scoutx-scheduler python main.py --config config.yaml --once
+```
+
+无新增也会发提示：`notify_feishu_daily(...)` 已支持“无新增”卡片提示（包括：无输入、最近 24h 无内容、全部被去重跳过）。
+
+升级发布：
+
+```bash
+cd /opt/scoutx
+git pull
+docker compose build
+docker compose up -d --force-recreate
+```
+
+备份（至少备份 `scout.db`，可选备份 `media/`）：
+
+```bash
+cd /opt/scoutx
+mkdir -p backups
+cp -a scout.db backups/scout.db.$(date +%F_%H%M%S)
+```
+
+### 7) 可选：用 Nginx 做 80/443 反代（生产推荐）
+
+- 若要公网访问，建议只开放 `80/443`，把 `9000` 仅绑定本机或安全组限制；
+- 用 Nginx 反代到 `127.0.0.1:9000`，再配 HTTPS（Let’s Encrypt / 腾讯云证书均可）。

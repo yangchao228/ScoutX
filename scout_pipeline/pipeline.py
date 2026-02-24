@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List
 
@@ -138,6 +139,8 @@ def apply_keyword_filters(items: List[Item], allow: list[str], deny: list[str]) 
 
 
 def _should_push_feishu_daily(run_started_at: datetime) -> bool:
+    if os.getenv("SCOUTX_FORCE_FEISHU_PUSH", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
     local_dt = run_started_at.astimezone(CN_TZ) if run_started_at.tzinfo else run_started_at.replace(tzinfo=CN_TZ)
     return local_dt.hour in FEISHU_PUSH_HOURS and local_dt.minute == 0
 
@@ -179,7 +182,7 @@ def run_once(config: AppConfig) -> None:
         feishu_batch.append((item, thread))
         processed += 1
 
-    if config.notifier.feishu_webhook and feishu_batch:
+    if config.notifier.feishu_webhook:
         if _should_push_feishu_daily(run_started_at):
             try:
                 notify_feishu_daily(

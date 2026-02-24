@@ -82,6 +82,31 @@ def _post_feishu_card(webhook: str, title: str, elements: list[dict]) -> None:
         raise RuntimeError(f"Feishu webhook error: {data}")
 
 
+def _post_feishu_empty_notice(
+    webhook: str,
+    *,
+    reason: str,
+    input_count: int = 0,
+    missing_published_at: int = 0,
+    dedup_skipped: int = 0,
+) -> None:
+    today = date.today().isoformat()
+    details = [
+        f"- 日期：{today}",
+        f"- 说明：{reason}",
+        f"- 本轮候选：{input_count} 条",
+    ]
+    if missing_published_at:
+        details.append(f"- 缺少发布时间：{missing_published_at} 条")
+    if dedup_skipped:
+        details.append(f"- 已推送去重跳过：{dedup_skipped} 条")
+    _post_feishu_card(
+        webhook,
+        "ScoutX 日报（无新增）",
+        [{"tag": "markdown", "content": "**ScoutX 日报**\n\n" + "\n".join(details)}],
+    )
+
+
 def notify_feishu_daily(
     webhook: str,
     items_with_threads: Iterable[tuple[Item, TweetThread]],
@@ -93,9 +118,17 @@ def notify_feishu_daily(
 
     items_with_threads = list(items_with_threads)
     if not items_with_threads:
+        _post_feishu_empty_notice(webhook, reason="当前调度周期没有新的可处理条目。", input_count=0)
+        print("[feishu] empty notice sent: no input items")
         return
     recent_pairs, missing_ts = _filter_recent_items(items_with_threads, hours=24)
     if not recent_pairs:
+        _post_feishu_empty_notice(
+            webhook,
+            reason="最近24小时内没有符合推送条件的内容。",
+            input_count=len(items_with_threads),
+            missing_published_at=missing_ts,
+        )
         print(
             f"[feishu] no recent items in last 24h "
             f"(input={len(items_with_threads)}, missing_published_at={missing_ts})"
@@ -105,6 +138,13 @@ def notify_feishu_daily(
     if sqlite_path:
         recent_pairs, dedup_skipped = filter_unpushed_items(sqlite_path, dedup_channel, recent_pairs)
         if not recent_pairs:
+            _post_feishu_empty_notice(
+                webhook,
+                reason="最近24小时内容已全部推送过，本次无新增推送。",
+                input_count=len(items_with_threads),
+                missing_published_at=missing_ts,
+                dedup_skipped=dedup_skipped,
+            )
             print(
                 f"[feishu] no unpushed recent items in last 24h "
                 f"(input={len(items_with_threads)}, missing_published_at={missing_ts}, dedup_skipped={dedup_skipped})"
