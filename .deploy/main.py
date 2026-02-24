@@ -18,7 +18,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run(args: argparse.Namespace) -> None:
+def main() -> None:
+    load_dotenv()
+    args = parse_args()
     config: AppConfig = load_config(args.config)
 
     if args.once:
@@ -29,17 +31,9 @@ def run(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    load_dotenv()
-    args = parse_args()
-
-    if args.once:
-        # Fail fast for one-shot runs (e.g. CI/manual debug). Do not loop forever.
-        run(args)
-        raise SystemExit(0)
-
     while True:
         try:
-            run(args)
+            main()
             break
         except Exception as exc:  # pragma: no cover - guard loop
             print(f"[fatal] {exc}")

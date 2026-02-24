@@ -17,7 +17,6 @@ class Item:
     title: str
     url: str
     description: str
-    published_at: Optional[str] = None
     comments: List[str] = field(default_factory=list)
     media: List[MediaAsset] = field(default_factory=list)
     raw: dict = field(default_factory=dict)

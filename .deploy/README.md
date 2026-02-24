@@ -1,27 +1,7 @@
 # ScoutX
 采集国内AI信息源，用于输出国外X等平台
 
-## Quick Start
-
-```bash
-# 启动（含 RSSHub）
-docker compose up -d
-
-# 校验所有信息源
-python3 validate_sources.py --config config.yaml
-
-# 手动执行一次采集
-python3 main.py --config config.yaml --once
-
-# 手动发送日报（默认读取 config.yaml 的飞书 webhook）
-python3 send_daily_report.py --config config.yaml
-```
-
-如果 `validate_sources.py` 出现 `Connection refused`，优先检查 RSSHub 是否可达：
-
-```bash
-curl -I http://127.0.0.1:1200
-```
+-
 
 # 🚀 ScoutX 项目运维部署信息
 

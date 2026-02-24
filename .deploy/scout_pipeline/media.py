@@ -17,39 +17,22 @@ def _safe_filename(url: str) -> str:
 
 
 def download_media(config: MediaConfig, item: Item) -> Item:
-    if config.max_mb <= 0:
-        return item
-
     os.makedirs(config.download_dir, exist_ok=True)
     max_bytes = config.max_mb * 1024 * 1024
 
-    # 避免一个条目包含大量图片时卡住整个 pipeline。
-    for media in item.media[:3]:
-        local_path: str | None = None
+    for media in item.media:
         try:
-            response = requests.get(media.url, timeout=(5, 20), stream=True)
+            response = requests.get(media.url, timeout=30, stream=True)
             response.raise_for_status()
-
-            content_length = int(response.headers.get("Content-Length", "0") or 0)
-            if content_length and content_length > max_bytes:
+            if int(response.headers.get("Content-Length", "0")) > max_bytes:
                 continue
             filename = _safe_filename(media.url)
             local_path = os.path.join(config.download_dir, filename)
             with open(local_path, "wb") as handle:
-                downloaded = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
-                        downloaded += len(chunk)
-                        if downloaded > max_bytes:
-                            raise RuntimeError("media exceeds max_mb")
                         handle.write(chunk)
             media.local_path = local_path
         except Exception:
-            if local_path:
-                try:
-                    if os.path.exists(local_path):
-                        os.remove(local_path)
-                except Exception:
-                    pass
             continue
     return item

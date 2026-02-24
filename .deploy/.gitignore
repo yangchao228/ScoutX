@@ -23,9 +23,8 @@ env/
 .env.*
 
 # Project runtime artifacts
-scout*.db
-*.db-journal
-media*/
+scout.db
+media/
 server.log
 *.log
 
@@ -33,3 +32,5 @@ server.log
 .DS_Store
 .idea/
 .vscode/
+scout_pipeline/__pycache__/__init__.cpython-314.pyc
+scout_pipeline/__pycache__/config.cpython-314.pyc

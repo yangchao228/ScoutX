@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  scoutx-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.simple
+    container_name: scoutx-web
+    ports:
+      - "9000:9000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ./scout.db:/app/scout.db
+      - ./media:/app/media
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    networks:
+      - scoutx-network
+
+  scoutx-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.simple
+    container_name: scoutx-scheduler
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ./scout.db:/app/scout.db
+      - ./media:/app/media
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    command: python main.py --config config.yaml
+    depends_on:
+      - scoutx-web
+    networks:
+      - scoutx-network
+
+networks:
+  scoutx-network:
+    driver: bridge
+
+volumes:
+  scoutx-data:

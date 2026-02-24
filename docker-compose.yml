@@ -1,0 +1,58 @@
+services:
+  rsshub:
+    image: diygod/rsshub:latest
+    container_name: scoutx-rsshub
+    ports:
+      - "1200:1200"
+    restart: unless-stopped
+    networks:
+      - scoutx-network
+
+  scoutx-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.china
+    container_name: scoutx-web
+    ports:
+      - "9000:9000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - RSSHUB_BASE=http://rsshub:1200
+    volumes:
+      - ./scout.db:/app/scout.db
+      - ./media:/app/media
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    depends_on:
+      - rsshub
+    networks:
+      - scoutx-network
+
+  scoutx-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.china
+    container_name: scoutx-scheduler
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - RSSHUB_BASE=http://rsshub:1200
+    volumes:
+      - ./scout.db:/app/scout.db
+      - ./media:/app/media
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    command: python main.py --config config.yaml
+    depends_on:
+      - scoutx-web
+      - rsshub
+    networks:
+      - scoutx-network
+
+networks:
+  scoutx-network:
+    driver: bridge
+
+volumes:
+  scoutx-data:
