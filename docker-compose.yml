@@ -1,6 +1,6 @@
 services:
   rsshub:
-    image: diygod/rsshub:latest
+    image: docker.m.daocloud.io/diygod/rsshub:latest
     container_name: scoutx-rsshub
     ports:
       - "1200:1200"

@@ -55,8 +55,6 @@ class StorageConfig(BaseModel):
 
 class NotifierConfig(BaseModel):
     feishu_webhook: Optional[HttpUrl] = None
-    telegram_bot_token_env: Optional[str] = None
-    telegram_chat_id: Optional[str] = None
 
 
 class ScheduleConfig(BaseModel):
