@@ -1,6 +1,10 @@
 # ScoutX
 采集国内AI信息源，用于输出国外X等平台
 
+## Lighthouse线上部署
+
+在 Lighthouse 更新 ScoutX 直接按这个流程即可：进入 /root/work/ScoutX → git pull origin main → docker compose up -d --build
+
 ## Quick Start
 
 ```bash
