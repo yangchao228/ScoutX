@@ -59,5 +59,3 @@ storage:
 
 notifier:
   feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/77b7266c-a713-42aa-814c-178241476827"
-  telegram_bot_token_env: null
-  telegram_chat_id: null

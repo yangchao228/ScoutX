@@ -98,7 +98,7 @@ class SimpleReportHandler(BaseHTTPRequestHandler):
                 <li>🧹 清洗、去重、筛选信息</li>
                 <li>🤖 可选调用 LLM 进行评分和内容生成</li>
                 <li>📊 生成日报并存储到 SQLite</li>
-                <li>📱 支持飞书/Telegram 通知</li>
+                <li>📱 支持飞书日报通知</li>
             </ul>
         </div>
         

@@ -1,7 +1,7 @@
 # ScoutX 项目指引（AGENTS）
 
 ## 项目概览
-ScoutX 用于采集国内 AI 信息源（RSS/HTML），进行清洗、去重、筛选，可选调用 LLM 打分与生成 X/Twitter 推文串，并将日报结果存入 SQLite。内置一个轻量 Web Server 展示每日条目，并支持飞书/Telegram 通知。
+ScoutX 用于采集国内 AI 信息源（RSS/HTML），进行清洗、去重、筛选，可选调用 LLM 打分与生成 X/Twitter 推文串，并将日报结果存入 SQLite。内置一个轻量 Web Server 展示每日条目，并支持飞书日报通知。
 
 ## 关键入口
 - `main.py`：采集与调度入口。`--once` 单次执行，否则按 cron 轮询执行。
@@ -16,7 +16,7 @@ ScoutX 用于采集国内 AI 信息源（RSS/HTML），进行清洗、去重、�
 5. `media.download_media` 下载素材到本地目录。
 6. 若 `llm.enabled=true`，`analyst.filter_item` 打分过滤，`creator.create_thread` 生成推文串。
 7. `report_store.record_report` 写入 `reports` 表。
-8. `notifier.notify` 发送通知（飞书/Telegram）。
+8. `notifier.notify_feishu_daily` 汇总推送飞书日报（由 pipeline 在每次 run 结束后触发）。
 
 ## 目录结构
 - `scout_pipeline/`：采集、处理、去重、LLM、通知、存储等核心逻辑。
@@ -31,12 +31,11 @@ ScoutX 用于采集国内 AI 信息源（RSS/HTML），进行清洗、去重、�
 - `filters`：关键词与最低分数门槛。
 - `llm`：OpenAI 兼容接口配置与提示词。
 - `storage.sqlite_path`：SQLite 文件路径。
-- `notifier`：飞书 webhook、Telegram token/chat id。
+- `notifier`：飞书 webhook。
 
 ## 必要环境变量
 取决于 `config.yaml`：
 - `llm.api_key_env` 默认 `OPENAI_API_KEY`。
-- `notifier.telegram_bot_token_env` 如启用 Telegram 才需要。
 
 ## 常用命令
 ```bash

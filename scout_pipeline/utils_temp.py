@@ -36,8 +36,6 @@ def load_config_simple() -> AppConfig:
         },
         "notifier": {
             "feishu_webhook": None,
-            "telegram_bot_token_env": None,
-            "telegram_chat_id": None
         }
     }
     return AppConfig.model_validate(config_data)

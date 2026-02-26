@@ -10,7 +10,7 @@
 
 ## 项目目标与数据流
 
-ScoutX 做的事：采集（RSS/HTML）→ 规范化 → 关键词过滤 → 去重入库（SQLite）→（可选 LLM 评分+生成 Thread）→ 记录日报 → 通知（飞书/Telegram）→ Web 展示。
+ScoutX 做的事：采集（RSS/HTML）→ 规范化 → 关键词过滤 → 去重入库（SQLite）→（可选 LLM 评分+生成 Thread）→ 记录日报 → 飞书日报推送 → Web 展示。
 
 核心 Pipeline（对应 `AGENTS.md` 的 1～8 步）：
 

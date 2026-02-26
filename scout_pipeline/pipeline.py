@@ -12,7 +12,7 @@ from scout_pipeline.deduper import Deduper
 from scout_pipeline.extractor import normalize_items
 from scout_pipeline.media import download_media
 from scout_pipeline.models import Item, TweetThread
-from scout_pipeline.notifier import notify, notify_feishu_daily
+from scout_pipeline.notifier import notify_feishu_daily
 from scout_pipeline.report_store import record_report
 
 
@@ -173,11 +173,6 @@ def run_once(config: AppConfig) -> None:
         except Exception as exc:
             print(f"[report][warn] failed to save item: {item.source} {item.url} ({exc})")
             continue
-
-        try:
-            notify(config.notifier, item, thread)
-        except Exception as exc:
-            print(f"[notify][warn] per-item notify failed: {item.source} {item.url} ({exc})")
 
         feishu_batch.append((item, thread))
         processed += 1

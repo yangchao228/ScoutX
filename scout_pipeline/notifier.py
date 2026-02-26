@@ -8,10 +8,8 @@ import requests
 from requests import exceptions as requests_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from scout_pipeline.config import NotifierConfig
 from scout_pipeline.models import Item, TweetThread
 from scout_pipeline.report_store import filter_unpushed_items, mark_items_pushed
-from scout_pipeline.utils import require_env
 
 
 def _truncate(text: str, max_len: int) -> str:
@@ -19,12 +17,6 @@ def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[: max_len - 1].rstrip() + "…"
-
-
-def _format_media_links(item: Item) -> str:
-    if not item.media:
-        return ""
-    return "\n".join([f"- {media.url}" for media in item.media[:5]])
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -186,6 +178,7 @@ def notify_feishu_daily(
         for item, thread in chunk:
             desc = _truncate(item.description, 140)
             summary = _truncate("\n\n".join(thread.tweets), 240)
+            body_text = summary or desc
             published_at = _parse_iso_datetime(item.published_at)
             published_text = (
                 published_at.astimezone().strftime("%Y-%m-%d %H:%M")
@@ -199,7 +192,7 @@ def notify_feishu_daily(
                         f"**[{item.title}]({item.url})**\n"
                         f"- 来源：{item.source}\n"
                         f"- 发布时间：{published_text}\n"
-                        f"{desc}\n\n{summary}"
+                        + (f"{body_text}" if body_text else "")
                     ),
                 }
             )
@@ -216,34 +209,6 @@ def notify_feishu_daily(
     )
 
 
-def notify_telegram(token: str, chat_id: str, item: Item, thread: TweetThread) -> None:
-    media_links = _format_media_links(item)
-    comments = "\n".join([f"- {comment}" for comment in item.comments[:3]])
-    text_parts = [item.title, item.url]
-    if media_links:
-        text_parts.append("\n素材链接\n" + media_links)
-    if comments:
-        text_parts.append("\n评论\n" + comments)
-    text_parts.append("\n" + "\n\n".join(thread.tweets))
-    text = "\n".join(text_parts)
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": False}
-    resp = requests.post(url, data=payload, timeout=20)
-    resp.raise_for_status()
-
-
 def notify_feishu(webhook: str, item: Item, thread: TweetThread) -> None:
     """兼容旧调用：单条消息也复用日报接口发送。"""
     notify_feishu_daily(webhook, [(item, thread)])
-
-
-def notify(config: NotifierConfig, item: Item, thread: TweetThread) -> None:
-    """保留逐条通知（目前用于 Telegram）。
-
-    飞书的“日报聚合推送”由 pipeline 在每次 run 结束后统一触发。
-    """
-
-    if config.telegram_bot_token_env and config.telegram_chat_id:
-        token = require_env(config.telegram_bot_token_env)
-        notify_telegram(token, config.telegram_chat_id, item, thread)
