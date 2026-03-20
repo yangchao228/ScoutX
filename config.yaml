@@ -59,3 +59,15 @@ storage:
 
 notifier:
   feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/77b7266c-a713-42aa-814c-178241476827"
+
+publisher:
+  enabled: false
+  provider: typefully
+  api_base: "https://api.typefully.com/v2"
+  api_key_env: "TYPEFULLY_API_KEY"
+  social_set_id: "${TYPEFULLY_SOCIAL_SET_ID:}"
+  publish_mode: draft
+  x_enabled: true
+  dedup_channel: "publisher:typefully:x"
+  max_post_length: 280
+  tags: ["scoutx", "china-ai"]

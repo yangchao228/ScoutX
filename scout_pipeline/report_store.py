@@ -46,6 +46,23 @@ def _init_db(sqlite_path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS publication_records (
+                channel TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                external_id TEXT,
+                external_url TEXT,
+                mode TEXT,
+                last_error TEXT,
+                payload_json TEXT,
+                response_json TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (channel, item_id)
+            )
+            """
+        )
 
 
 def record_report(sqlite_path: str, item: Item, thread: TweetThread) -> None:
@@ -145,12 +162,89 @@ def mark_items_pushed(
     return count
 
 
+def record_publication_result(
+    sqlite_path: str,
+    channel: str,
+    item: Item,
+    *,
+    status: str,
+    mode: str | None = None,
+    external_id: str | None = None,
+    external_url: str | None = None,
+    last_error: str | None = None,
+    payload: Any | None = None,
+    response: Any | None = None,
+) -> None:
+    _init_db(sqlite_path)
+    item_id = fingerprint_item(item)
+    payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
+    response_json = json.dumps(response, ensure_ascii=False) if response is not None else None
+    with sqlite3.connect(sqlite_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO publication_records (
+                channel, item_id, status, external_id, external_url, mode,
+                last_error, payload_json, response_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(channel, item_id) DO UPDATE SET
+                status=excluded.status,
+                external_id=excluded.external_id,
+                external_url=excluded.external_url,
+                mode=excluded.mode,
+                last_error=excluded.last_error,
+                payload_json=excluded.payload_json,
+                response_json=excluded.response_json,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                channel,
+                item_id,
+                status,
+                external_id,
+                external_url,
+                mode,
+                last_error,
+                payload_json,
+                response_json,
+            ),
+        )
+
+
+def _load_publication_map(conn: sqlite3.Connection, item_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not item_ids:
+        return {}
+    placeholders = ",".join("?" for _ in item_ids)
+    cur = conn.execute(
+        f"""
+        SELECT item_id, channel, status, external_id, external_url, mode, last_error, updated_at
+        FROM publication_records
+        WHERE item_id IN ({placeholders})
+        ORDER BY updated_at DESC
+        """,
+        item_ids,
+    )
+    publication_map: dict[str, list[dict[str, Any]]] = {}
+    for row in cur.fetchall():
+        publication_map.setdefault(str(row[0]), []).append(
+            {
+                "channel": row[1],
+                "status": row[2],
+                "external_id": row[3],
+                "external_url": row[4],
+                "mode": row[5],
+                "last_error": row[6],
+                "updated_at": row[7],
+            }
+        )
+    return publication_map
+
+
 def fetch_reports(sqlite_path: str, report_date: str) -> List[Dict[str, Any]]:
     _init_db(sqlite_path)
     with sqlite3.connect(sqlite_path) as conn:
         cur = conn.execute(
             """
-            SELECT source, title, url, description,
+            SELECT id, source, title, url, description,
                    published_at, comments_json, media_json, thread_json, created_at
             FROM reports
             WHERE report_date = ?
@@ -158,19 +252,23 @@ def fetch_reports(sqlite_path: str, report_date: str) -> List[Dict[str, Any]]:
             """,
             (report_date,),
         )
+        raw_rows = cur.fetchall()
+        publication_map = _load_publication_map(conn, [str(row[0]) for row in raw_rows])
         rows = []
-        for row in cur.fetchall():
+        for row in raw_rows:
             rows.append(
                 {
-                    "source": row[0],
-                    "title": row[1],
-                    "url": row[2],
-                    "description": row[3],
-                    "published_at": row[4],
-                    "comments": json.loads(row[5]) if row[5] else [],
-                    "media": json.loads(row[6]) if row[6] else [],
-                    "thread": json.loads(row[7]) if row[7] else [],
-                    "created_at": row[8],
+                    "id": row[0],
+                    "source": row[1],
+                    "title": row[2],
+                    "url": row[3],
+                    "description": row[4],
+                    "published_at": row[5],
+                    "comments": json.loads(row[6]) if row[6] else [],
+                    "media": json.loads(row[7]) if row[7] else [],
+                    "thread": json.loads(row[8]) if row[8] else [],
+                    "created_at": row[9],
+                    "publications": publication_map.get(str(row[0]), []),
                 }
             )
         return rows

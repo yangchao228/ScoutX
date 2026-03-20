@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class FieldSelector(BaseModel):
@@ -61,6 +61,25 @@ class ScheduleConfig(BaseModel):
     cron: str
 
 
+class PublisherConfig(BaseModel):
+    enabled: bool = False
+    provider: Literal["typefully"] = "typefully"
+    api_base: HttpUrl = "https://api.typefully.com/v2"
+    api_key_env: str = "TYPEFULLY_API_KEY"
+    social_set_id: Optional[str] = None
+    publish_mode: Literal["draft", "now", "next-free-slot"] = "draft"
+    x_enabled: bool = True
+    dedup_channel: str = "publisher:typefully:x"
+    max_post_length: int = 280
+    tags: List[str] = []
+
+    @model_validator(mode="after")
+    def validate_enabled_config(self) -> "PublisherConfig":
+        if self.enabled and not self.social_set_id:
+            raise ValueError("publisher.social_set_id is required when publisher.enabled=true")
+        return self
+
+
 class AppConfig(BaseModel):
     schedule: ScheduleConfig
     sources: List[RSSSource | HTMLSource]
@@ -69,3 +88,4 @@ class AppConfig(BaseModel):
     media: MediaConfig
     storage: StorageConfig
     notifier: NotifierConfig
+    publisher: PublisherConfig = Field(default_factory=PublisherConfig)

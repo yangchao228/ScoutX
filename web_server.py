@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 from datetime import date
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -10,6 +11,118 @@ from scout_pipeline.report_store import fetch_reports, list_report_dates
 from scout_pipeline.utils import load_config
 
 config_path = "config.yaml"
+
+
+def _pick_requested_date(path: str, query: dict[str, list[str]], dates: list[tuple[str, int]]) -> str:
+    if path in ("/", "", "/api/reports", "/api/summary"):
+        requested = query.get("date", [date.today().isoformat()])[0]
+    elif path.startswith("/date/"):
+        requested = path.split("/date/")[1] or date.today().isoformat()
+    elif path.startswith("/api/date/"):
+        requested = path.split("/api/date/")[1] or date.today().isoformat()
+    else:
+        requested = date.today().isoformat()
+
+    if dates and requested not in [d for d, _ in dates]:
+        return dates[0][0]
+    return requested
+
+
+def _matches_status(report: dict[str, Any], status_filter: str) -> bool:
+    normalized = (status_filter or "").strip().lower()
+    publications = report.get("publications", [])
+    if normalized in {"", "all"}:
+        return True
+    if normalized in {"not_published", "unpublished"}:
+        return not publications
+    return any(str(pub.get("status") or "").lower() == normalized for pub in publications)
+
+
+def _filter_reports(
+    reports: list[dict[str, Any]],
+    *,
+    source: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    filtered = reports
+    if source:
+        filtered = [report for report in filtered if str(report.get("source") or "") == source]
+    if status:
+        filtered = [report for report in filtered if _matches_status(report, status)]
+    return filtered
+
+
+def _build_summary(report_date: str, reports: list[dict[str, Any]]) -> dict[str, Any]:
+    by_source: dict[str, int] = {}
+    by_status: dict[str, int] = {
+        "draft_created": 0,
+        "published": 0,
+        "failed": 0,
+        "not_published": 0,
+    }
+    for report in reports:
+        source = str(report.get("source") or "unknown")
+        by_source[source] = by_source.get(source, 0) + 1
+        publications = report.get("publications", [])
+        if not publications:
+            by_status["not_published"] += 1
+            continue
+        seen_statuses = {str(pub.get("status") or "unknown") for pub in publications}
+        for status in seen_statuses:
+            by_status[status] = by_status.get(status, 0) + 1
+
+    return {
+        "date": report_date,
+        "count": len(reports),
+        "by_source": dict(sorted(by_source.items(), key=lambda item: (-item[1], item[0]))),
+        "by_status": by_status,
+    }
+
+
+def _render_publications(publications: list[dict[str, Any]]) -> str:
+    if not publications:
+        return "<div class='pub-empty'>未推送到 X</div>"
+
+    status_labels = {
+        "draft_created": "草稿已创建",
+        "published": "已发布",
+        "failed": "发布失败",
+    }
+    badges: list[str] = []
+    for publication in publications:
+        status = str(publication.get("status") or "unknown")
+        label = status_labels.get(status, status)
+        status_class = {
+            "draft_created": "status-draft",
+            "published": "status-ok",
+            "failed": "status-failed",
+        }.get(status, "status-unknown")
+        channel = html.escape(str(publication.get("channel") or "unknown"))
+        updated_at = html.escape(str(publication.get("updated_at") or ""))
+        mode = html.escape(str(publication.get("mode") or ""))
+        external_url = str(publication.get("external_url") or "").strip()
+        last_error = str(publication.get("last_error") or "").strip()
+        link = (
+            f"<a href='{html.escape(external_url)}' target='_blank'>打开</a>"
+            if external_url
+            else ""
+        )
+        error_html = (
+            f"<div class='pub-error'>{html.escape(last_error)}</div>"
+            if last_error
+            else ""
+        )
+        badges.append(
+            "<div class='pub-item'>"
+            f"<span class='status-badge {status_class}'>{html.escape(label)}</span>"
+            f"<span class='pub-meta'>{channel}</span>"
+            + (f"<span class='pub-meta'>mode: {mode}</span>" if mode else "")
+            + (f"<span class='pub-meta'>{updated_at}</span>" if updated_at else "")
+            + (f"<span class='pub-link'>{link}</span>" if link else "")
+            + error_html
+            + "</div>"
+        )
+    return "".join(badges)
 
 
 def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list[dict[str, Any]]) -> str:
@@ -33,6 +146,7 @@ def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list
             ]
         )
         thread = "".join([f"<li>{html.escape(t)}</li>" for t in report["thread"]])
+        publications = _render_publications(report.get("publications", []))
 
         report_cards.append(
             """
@@ -53,6 +167,12 @@ def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list
               <p class='description'>"""
             + html.escape(report["description"])
             + """</p>
+              <div class='section'>
+                <div class='section-title'>发布状态</div>
+                <div class='pub-list'>"""
+            + publications
+            + """</div>
+              </div>
               <div class='section'>
                 <div class='section-title'>Thread</div>
                 <ul>"""
@@ -143,6 +263,23 @@ def _render_page(selected_date: str, dates: list[tuple[str, int]], reports: list
     .section {{ margin-top: 16px; }}
     .section-title {{ font-size: 12px; color: var(--muted); margin-bottom: 6px; }}
     ul {{ margin: 0; padding-left: 18px; color: #e2e8f0; }}
+    .pub-list {{ display: flex; flex-direction: column; gap: 8px; }}
+    .pub-item {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
+    .pub-meta, .pub-link {{ font-size: 12px; color: var(--muted); }}
+    .pub-empty {{ font-size: 13px; color: var(--muted); }}
+    .pub-error {{
+      width: 100%; color: #fca5a5; font-size: 12px; line-height: 1.5;
+      background: rgba(127, 29, 29, 0.25); border: 1px solid rgba(248, 113, 113, 0.25);
+      padding: 8px 10px; border-radius: 10px;
+    }}
+    .status-badge {{
+      display: inline-flex; align-items: center; border-radius: 999px;
+      padding: 4px 10px; font-size: 12px; font-weight: 600;
+    }}
+    .status-draft {{ background: rgba(56, 189, 248, 0.12); color: #7dd3fc; }}
+    .status-ok {{ background: rgba(74, 222, 128, 0.14); color: #86efac; }}
+    .status-failed {{ background: rgba(248, 113, 113, 0.14); color: #fca5a5; }}
+    .status-unknown {{ background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }}
     .empty {{
       border: 1px dashed var(--border); padding: 40px; text-align: center;
       color: var(--muted); border-radius: 16px; margin-top: 24px;
@@ -181,20 +318,45 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._write_response(200, "ok", "text/plain; charset=utf-8")
             return
 
-        if parsed.path in ("/", ""):
-            requested = query.get("date", [date.today().isoformat()])[0]
-        elif parsed.path.startswith("/date/"):
-            requested = parsed.path.split("/date/")[1] or date.today().isoformat()
-        else:
+        allowed_paths = {"/", "", "/api/reports", "/api/summary"}
+        if parsed.path not in allowed_paths and not parsed.path.startswith(("/date/", "/api/date/")):
             self._write_response(404, "Not Found", "text/plain; charset=utf-8")
             return
 
         config = load_config(config_path)
         sqlite_path = config.storage.sqlite_path
         dates = list_report_dates(sqlite_path)
-        if dates and requested not in [d for d, _ in dates]:
-            requested = dates[0][0]
+        requested = _pick_requested_date(parsed.path, query, dates)
         reports = fetch_reports(sqlite_path, requested)
+        source = query.get("source", [None])[0]
+        status = query.get("status", [None])[0]
+        reports = _filter_reports(reports, source=source, status=status)
+
+        if parsed.path.startswith("/api/"):
+            if parsed.path == "/api/summary":
+                body = json.dumps(
+                    {
+                        "date": requested,
+                        "available_dates": [{"date": d, "count": count} for d, count in dates],
+                        "filters": {"source": source, "status": status},
+                        "summary": _build_summary(requested, reports),
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                body = json.dumps(
+                    {
+                        "date": requested,
+                        "available_dates": [{"date": d, "count": count} for d, count in dates],
+                        "filters": {"source": source, "status": status},
+                        "count": len(reports),
+                        "reports": reports,
+                    },
+                    ensure_ascii=False,
+                )
+            self._write_response(200, body, "application/json; charset=utf-8")
+            return
+
         html_body = _render_page(requested, dates, reports)
         self._write_response(200, html_body, "text/html; charset=utf-8")
 

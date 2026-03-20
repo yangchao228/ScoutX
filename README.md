@@ -19,12 +19,91 @@ python3 main.py --config config.yaml --once
 
 # 手动发送日报（默认读取 config.yaml 的飞书 webhook）
 python3 send_daily_report.py --config config.yaml
+
+# 运行当前已补的无依赖单元测试
+python3 -m unittest tests.test_thread_formatter tests.test_report_store
 ```
 
 如果 `validate_sources.py` 出现 `Connection refused`，优先检查 RSSHub 是否可达：
 
 ```bash
 curl -I http://127.0.0.1:1200
+```
+
+## 发布到 X
+
+项目现在支持通过 Typefully API v2 创建草稿，并可选立即发布或进入下一个排期槽位。
+
+1. 在 Typefully 后台创建 API Key。
+2. 调用 `GET /v2/social-sets` 获取目标账号对应的 `social_set_id`。
+3. 配置环境变量：
+
+```bash
+export TYPEFULLY_API_KEY=your_api_key
+export TYPEFULLY_SOCIAL_SET_ID=12345
+```
+
+4. 在 `config.yaml` 中开启：
+
+```yaml
+publisher:
+  enabled: true
+  provider: typefully
+  publish_mode: draft   # 可选: draft / now / next-free-slot
+```
+
+启用后，pipeline 会在 `reports` 成功落库后，把生成出的 thread 推送到 Typefully，并使用 `push_records` 做去重，避免重复创建草稿。
+
+常用命令：
+
+```bash
+# 查看你在 Typefully 可用的 social set
+python3 list_typefully_social_sets.py --config config.yaml
+
+# 将指定日期已落库的日报回放到 Typefully/X
+python3 publish_reports.py --config config.yaml --date 2026-02-26
+
+# 先看将要发出的 payload，不真正调用 Typefully
+python3 publish_reports.py --config config.yaml --date 2026-02-26 --limit 3 --dry-run
+
+# 只回放某个来源，或按标题关键字筛选
+python3 publish_reports.py --config config.yaml --date 2026-02-26 --source infoq_feed
+python3 publish_reports.py --config config.yaml --date 2026-02-26 --contains DeepSeek
+
+# 忽略去重，强制重新发布
+python3 publish_reports.py --config config.yaml --date 2026-02-26 --force
+
+# 查看某天的发布状态，或只看失败项
+python3 show_publish_status.py --config config.yaml --date 2026-02-26
+python3 show_publish_status.py --config config.yaml --date 2026-02-26 --only-failed
+
+# 发布 smoke test: 默认只校验配置/认证/候选 payload，不真正创建草稿
+python3 smoke_publish.py --config config.yaml --date 2026-02-26
+
+# 真正创建 1 条 smoke 草稿
+python3 smoke_publish.py --config config.yaml --date 2026-02-26 --live
+```
+
+如果通过 `docker compose` 运行，请在宿主机导出 `TYPEFULLY_API_KEY` 和 `TYPEFULLY_SOCIAL_SET_ID`，compose 已透传到容器。
+
+## JSON API
+
+Web 服务现在除了 HTML 页面，也支持按日期读取 JSON：
+
+```bash
+# 某天的完整日报 JSON
+curl "http://127.0.0.1:9000/api/reports?date=2026-02-26"
+
+# 同一路径也支持 REST 风格
+curl "http://127.0.0.1:9000/api/date/2026-02-26"
+
+# 按来源或发布状态过滤
+curl "http://127.0.0.1:9000/api/reports?date=2026-02-26&source=infoq_feed"
+curl "http://127.0.0.1:9000/api/reports?date=2026-02-26&status=failed"
+curl "http://127.0.0.1:9000/api/reports?date=2026-02-26&status=not_published"
+
+# 读取按来源 / 按发布状态聚合后的 summary
+curl "http://127.0.0.1:9000/api/summary?date=2026-02-26"
 ```
 
 # 🚀 ScoutX 项目运维部署信息

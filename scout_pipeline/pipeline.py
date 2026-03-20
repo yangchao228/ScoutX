@@ -13,7 +13,13 @@ from scout_pipeline.extractor import normalize_items
 from scout_pipeline.media import download_media
 from scout_pipeline.models import Item, TweetThread
 from scout_pipeline.notifier import notify_feishu_daily
-from scout_pipeline.report_store import record_report
+from scout_pipeline.publisher import TypefullyPublisher, build_publisher
+from scout_pipeline.report_store import (
+    filter_unpushed_items,
+    mark_items_pushed,
+    record_publication_result,
+    record_report,
+)
 
 
 AI_STRONG_KEYWORDS = [
@@ -152,6 +158,7 @@ def run_once(config: AppConfig) -> None:
     filtered = apply_keyword_filters(normalized, config.filters.allow_keywords, config.filters.deny_keywords)
 
     deduper = Deduper(config.storage.sqlite_path)
+    publisher = build_publisher(config.publisher)
     new_items = deduper.filter_new(filtered)
 
     feishu_batch: list[tuple] = []
@@ -173,6 +180,63 @@ def run_once(config: AppConfig) -> None:
         except Exception as exc:
             print(f"[report][warn] failed to save item: {item.source} {item.url} ({exc})")
             continue
+
+        if publisher:
+            pending_publish, publish_skipped = filter_unpushed_items(
+                config.storage.sqlite_path,
+                publisher.channel_name,
+                [(item, thread)],
+            )
+            if pending_publish:
+                try:
+                    payload = (
+                        publisher.build_draft_payload(thread)
+                        if isinstance(publisher, TypefullyPublisher)
+                        else None
+                    )
+                    publish_response = publisher.publish(item, thread)
+                    mark_items_pushed(
+                        config.storage.sqlite_path,
+                        publisher.channel_name,
+                        pending_publish,
+                    )
+                    record_publication_result(
+                        config.storage.sqlite_path,
+                        publisher.channel_name,
+                        item,
+                        status=(
+                            "draft_created"
+                            if config.publisher.publish_mode == "draft"
+                            else "published"
+                        ),
+                        mode=config.publisher.publish_mode,
+                        external_id=str(
+                            publish_response.get("id")
+                            or publish_response.get("draft_id")
+                            or ""
+                        )
+                        or None,
+                        external_url=str(
+                            publish_response.get("url")
+                            or publish_response.get("share_url")
+                            or ""
+                        )
+                        or None,
+                        payload=payload,
+                        response=publish_response,
+                    )
+                except Exception as exc:
+                    record_publication_result(
+                        config.storage.sqlite_path,
+                        publisher.channel_name,
+                        item,
+                        status="failed",
+                        mode=config.publisher.publish_mode,
+                        last_error=str(exc),
+                    )
+                    print(f"[publish][warn] failed to publish item: {item.source} {item.url} ({exc})")
+            elif publish_skipped:
+                print(f"[publish] skipped already published item: {item.source} {item.url}")
 
         feishu_batch.append((item, thread))
         processed += 1
