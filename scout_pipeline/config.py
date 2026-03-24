@@ -63,7 +63,7 @@ class ScheduleConfig(BaseModel):
 
 class PublisherConfig(BaseModel):
     enabled: bool = False
-    provider: Literal["typefully"] = "typefully"
+    provider: Literal["typefully", "x_official"] = "typefully"
     api_base: HttpUrl = "https://api.typefully.com/v2"
     api_key_env: str = "TYPEFULLY_API_KEY"
     social_set_id: Optional[str] = None
@@ -72,11 +72,23 @@ class PublisherConfig(BaseModel):
     dedup_channel: str = "publisher:typefully:x"
     max_post_length: int = 280
     tags: List[str] = []
+    x_api_base: HttpUrl = "https://api.x.com/2"
+    x_consumer_key_env: str = "X_CONSUMER_KEY"
+    x_consumer_secret_env: str = "X_CONSUMER_SECRET"
+    x_access_token_env: str = "X_ACCESS_TOKEN"
+    x_access_token_secret_env: str = "X_ACCESS_TOKEN_SECRET"
 
     @model_validator(mode="after")
     def validate_enabled_config(self) -> "PublisherConfig":
-        if self.enabled and not self.social_set_id:
-            raise ValueError("publisher.social_set_id is required when publisher.enabled=true")
+        if not self.enabled:
+            return self
+        if self.provider == "typefully" and not self.social_set_id:
+            raise ValueError("publisher.social_set_id is required when publisher.enabled=true and provider=typefully")
+        if self.provider == "x_official":
+            if self.publish_mode != "now":
+                raise ValueError("publisher.publish_mode must be 'now' when provider=x_official")
+            if self.dedup_channel == "publisher:typefully:x":
+                self.dedup_channel = "publisher:x_official"
         return self
 
 

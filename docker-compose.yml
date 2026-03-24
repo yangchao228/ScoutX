@@ -21,6 +21,10 @@ services:
       - RSSHUB_BASE=http://rsshub:1200
       - TYPEFULLY_API_KEY=${TYPEFULLY_API_KEY:-}
       - TYPEFULLY_SOCIAL_SET_ID=${TYPEFULLY_SOCIAL_SET_ID:-}
+      - X_CONSUMER_KEY=${X_CONSUMER_KEY:-}
+      - X_CONSUMER_SECRET=${X_CONSUMER_SECRET:-}
+      - X_ACCESS_TOKEN=${X_ACCESS_TOKEN:-}
+      - X_ACCESS_TOKEN_SECRET=${X_ACCESS_TOKEN_SECRET:-}
     volumes:
       - ./scout.db:/app/scout.db
       - ./media:/app/media
@@ -42,6 +46,10 @@ services:
       - RSSHUB_BASE=http://rsshub:1200
       - TYPEFULLY_API_KEY=${TYPEFULLY_API_KEY:-}
       - TYPEFULLY_SOCIAL_SET_ID=${TYPEFULLY_SOCIAL_SET_ID:-}
+      - X_CONSUMER_KEY=${X_CONSUMER_KEY:-}
+      - X_CONSUMER_SECRET=${X_CONSUMER_SECRET:-}
+      - X_ACCESS_TOKEN=${X_ACCESS_TOKEN:-}
+      - X_ACCESS_TOKEN_SECRET=${X_ACCESS_TOKEN_SECRET:-}
     volumes:
       - ./scout.db:/app/scout.db
       - ./media:/app/media

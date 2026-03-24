@@ -6,7 +6,7 @@ import json
 from datetime import date
 
 from scout_pipeline.models import Item, MediaAsset, TweetThread
-from scout_pipeline.publisher import TypefullyPublisher, build_publisher
+from scout_pipeline.publisher import TypefullyPublisher, XOfficialPublisher, build_publisher
 from scout_pipeline.report_store import (
     fetch_reports,
     filter_unpushed_items,
@@ -67,25 +67,51 @@ def _pick_candidate(
     return filtered[0] if filtered else None
 
 
+def _extract_publication_metadata(response: dict) -> tuple[str | None, str | None]:
+    external_id = str(
+        response.get("root_id")
+        or response.get("id")
+        or response.get("draft_id")
+        or ""
+    ).strip() or None
+    external_url = str(
+        response.get("url")
+        or response.get("share_url")
+        or ""
+    ).strip() or None
+    return external_id, external_url
+
+
 def main() -> int:
     args = parse_args()
     config = load_config(args.config)
     publisher = build_publisher(config.publisher)
     if not publisher:
         raise SystemExit("publisher is disabled in config")
-    if not isinstance(publisher, TypefullyPublisher):
-        raise SystemExit(f"smoke_publish only supports Typefully currently, got {config.publisher.provider}")
-
-    social_sets = publisher.list_social_sets()
-    results = social_sets.get("results", []) if isinstance(social_sets, dict) else []
-    matching_social_set = next(
-        (entry for entry in results if str(entry.get("id")) == str(config.publisher.social_set_id)),
-        None,
-    )
-    if not matching_social_set:
-        raise SystemExit(
-            f"publisher.social_set_id={config.publisher.social_set_id} was not found in your Typefully social sets"
+    provider_summary: dict[str, object] = {"provider": config.publisher.provider}
+    if isinstance(publisher, TypefullyPublisher):
+        social_sets = publisher.list_social_sets()
+        results = social_sets.get("results", []) if isinstance(social_sets, dict) else []
+        matching_social_set = next(
+            (entry for entry in results if str(entry.get("id")) == str(config.publisher.social_set_id)),
+            None,
         )
+        if not matching_social_set:
+            raise SystemExit(
+                f"publisher.social_set_id={config.publisher.social_set_id} was not found in your Typefully social sets"
+            )
+        provider_summary["social_set"] = {
+            "id": matching_social_set.get("id"),
+            "name": matching_social_set.get("name"),
+            "username": matching_social_set.get("username"),
+        }
+    elif isinstance(publisher, XOfficialPublisher):
+        publisher._headers(f"{str(config.publisher.x_api_base).rstrip('/')}/tweets")
+        provider_summary["auth"] = "oauth1_user_context"
+        provider_summary["api_base"] = str(config.publisher.x_api_base)
+        provider_summary["credentials_present"] = True
+    else:
+        raise SystemExit(f"unsupported publisher provider: {config.publisher.provider}")
 
     reports = fetch_reports(config.storage.sqlite_path, args.report_date)
     if args.source:
@@ -107,11 +133,7 @@ def main() -> int:
     payload = publisher.build_draft_payload(thread)
     summary = {
         "mode": config.publisher.publish_mode,
-        "social_set": {
-            "id": matching_social_set.get("id"),
-            "name": matching_social_set.get("name"),
-            "username": matching_social_set.get("username"),
-        },
+        "provider": provider_summary,
         "item": {
             "source": item.source,
             "title": item.title,
@@ -127,6 +149,7 @@ def main() -> int:
         return 0
 
     response = publisher.publish(item, thread)
+    external_id, external_url = _extract_publication_metadata(response)
     mark_items_pushed(config.storage.sqlite_path, publisher.channel_name, [(item, thread)])
     record_publication_result(
         config.storage.sqlite_path,
@@ -134,12 +157,13 @@ def main() -> int:
         item,
         status=(
             "draft_created"
-            if config.publisher.publish_mode == "draft"
+            if config.publisher.provider == "typefully"
+            and config.publisher.publish_mode == "draft"
             else "published"
         ),
         mode=config.publisher.publish_mode,
-        external_id=str(response.get("id") or response.get("draft_id") or "") or None,
-        external_url=str(response.get("url") or response.get("share_url") or "") or None,
+        external_id=external_id,
+        external_url=external_url,
         payload=payload,
         response=response,
     )
@@ -147,8 +171,8 @@ def main() -> int:
         json.dumps(
             {
                 "result": "ok",
-                "draft_id": response.get("id") or response.get("draft_id"),
-                "url": response.get("url") or response.get("share_url"),
+                "external_id": external_id,
+                "url": external_url,
             },
             ensure_ascii=False,
             indent=2,

@@ -13,7 +13,7 @@ from scout_pipeline.extractor import normalize_items
 from scout_pipeline.media import download_media
 from scout_pipeline.models import Item, TweetThread
 from scout_pipeline.notifier import notify_feishu_daily
-from scout_pipeline.publisher import TypefullyPublisher, build_publisher
+from scout_pipeline.publisher import build_publisher
 from scout_pipeline.report_store import (
     filter_unpushed_items,
     mark_items_pushed,
@@ -151,6 +151,21 @@ def _should_push_feishu_daily(run_started_at: datetime) -> bool:
     return local_dt.hour in FEISHU_PUSH_HOURS and local_dt.minute == 0
 
 
+def _extract_publication_metadata(response: dict) -> tuple[str | None, str | None]:
+    external_id = str(
+        response.get("root_id")
+        or response.get("id")
+        or response.get("draft_id")
+        or ""
+    ).strip() or None
+    external_url = str(
+        response.get("url")
+        or response.get("share_url")
+        or ""
+    ).strip() or None
+    return external_id, external_url
+
+
 def run_once(config: AppConfig) -> None:
     run_started_at = datetime.now(CN_TZ)
     raw_items = collect_sources(config.sources)
@@ -189,12 +204,9 @@ def run_once(config: AppConfig) -> None:
             )
             if pending_publish:
                 try:
-                    payload = (
-                        publisher.build_draft_payload(thread)
-                        if isinstance(publisher, TypefullyPublisher)
-                        else None
-                    )
+                    payload = publisher.build_draft_payload(thread)
                     publish_response = publisher.publish(item, thread)
+                    external_id, external_url = _extract_publication_metadata(publish_response)
                     mark_items_pushed(
                         config.storage.sqlite_path,
                         publisher.channel_name,
@@ -206,22 +218,13 @@ def run_once(config: AppConfig) -> None:
                         item,
                         status=(
                             "draft_created"
-                            if config.publisher.publish_mode == "draft"
+                            if config.publisher.provider == "typefully"
+                            and config.publisher.publish_mode == "draft"
                             else "published"
                         ),
                         mode=config.publisher.publish_mode,
-                        external_id=str(
-                            publish_response.get("id")
-                            or publish_response.get("draft_id")
-                            or ""
-                        )
-                        or None,
-                        external_url=str(
-                            publish_response.get("url")
-                            or publish_response.get("share_url")
-                            or ""
-                        )
-                        or None,
+                        external_id=external_id,
+                        external_url=external_url,
                         payload=payload,
                         response=publish_response,
                     )

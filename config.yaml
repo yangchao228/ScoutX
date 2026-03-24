@@ -62,12 +62,17 @@ notifier:
 
 publisher:
   enabled: false
-  provider: typefully
+  provider: x_official
   api_base: "https://api.typefully.com/v2"
   api_key_env: "TYPEFULLY_API_KEY"
   social_set_id: "${TYPEFULLY_SOCIAL_SET_ID:}"
-  publish_mode: draft
+  publish_mode: now
   x_enabled: true
-  dedup_channel: "publisher:typefully:x"
+  dedup_channel: "publisher:x_official"
   max_post_length: 280
   tags: ["scoutx", "china-ai"]
+  x_api_base: "https://api.x.com/2"
+  x_consumer_key_env: "X_CONSUMER_KEY"
+  x_consumer_secret_env: "X_CONSUMER_SECRET"
+  x_access_token_env: "X_ACCESS_TOKEN"
+  x_access_token_secret_env: "X_ACCESS_TOKEN_SECRET"

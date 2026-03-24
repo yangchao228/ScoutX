@@ -21,7 +21,7 @@ python3 main.py --config config.yaml --once
 python3 send_daily_report.py --config config.yaml
 
 # 运行当前已补的无依赖单元测试
-python3 -m unittest tests.test_thread_formatter tests.test_report_store
+python3 -m unittest tests.test_thread_formatter tests.test_report_store tests.test_oauth1
 ```
 
 如果 `validate_sources.py` 出现 `Connection refused`，优先检查 RSSHub 是否可达：
@@ -32,7 +32,46 @@ curl -I http://127.0.0.1:1200
 
 ## 发布到 X
 
-项目现在支持通过 Typefully API v2 创建草稿，并可选立即发布或进入下一个排期槽位。
+项目现在默认优先走 X 官方 API，适合低频自动推送。Typefully 仍然保留，作为备用发布器。
+
+### 默认方案：X 官方 API
+
+当前实现使用 OAuth 1.0a user context，适合长期自动化脚本。
+
+需要准备 4 个环境变量：
+
+```bash
+export X_CONSUMER_KEY=...
+export X_CONSUMER_SECRET=...
+export X_ACCESS_TOKEN=...
+export X_ACCESS_TOKEN_SECRET=...
+```
+
+`config.yaml` 默认 provider 已经是：
+
+```yaml
+publisher:
+  enabled: false
+  provider: x_official
+  publish_mode: now
+  dedup_channel: "publisher:x_official"
+```
+
+真正启用时把 `enabled` 改成 `true` 即可。
+
+Smoke 检查：
+
+```bash
+# 默认只校验配置、认证、候选 payload，不真正发帖
+python3 smoke_publish.py --config config.yaml --date 2026-02-26
+
+# 真正发 1 条线程
+python3 smoke_publish.py --config config.yaml --date 2026-02-26 --live
+```
+
+### 备用方案：Typefully
+
+如果你想保留草稿审核、排队、多账号管理，可以切回 Typefully。
 
 1. 在 Typefully 后台创建 API Key。
 2. 调用 `GET /v2/social-sets` 获取目标账号对应的 `social_set_id`。
@@ -50,6 +89,7 @@ publisher:
   enabled: true
   provider: typefully
   publish_mode: draft   # 可选: draft / now / next-free-slot
+  dedup_channel: "publisher:typefully:x"
 ```
 
 启用后，pipeline 会在 `reports` 成功落库后，把生成出的 thread 推送到 Typefully，并使用 `push_records` 做去重，避免重复创建草稿。
