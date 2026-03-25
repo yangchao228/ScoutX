@@ -8,6 +8,85 @@ services:
     networks:
       - scoutx-network
 
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+    container_name: scoutx-postgres
+    environment:
+      - POSTGRES_DB=content_service
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./apps/content_service/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d content_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - scoutx-network
+
+  content-service-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.china
+    container_name: scoutx-content-service-api
+    ports:
+      - "9100:9100"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - CONTENT_SERVICE_HOST=0.0.0.0
+      - CONTENT_SERVICE_PORT=9100
+      - CONTENT_SERVICE_PUBLIC_BASE_URL=${CONTENT_SERVICE_PUBLIC_BASE_URL:-http://127.0.0.1:9100}
+      - CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_LIMIT=${CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_LIMIT:-100}
+      - CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_HOURS=${CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_HOURS:-72}
+      - CONTENT_SERVICE_PUBLIC_FEED_CACHE_TTL_SECONDS=${CONTENT_SERVICE_PUBLIC_FEED_CACHE_TTL_SECONDS:-300}
+      - CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS=${CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS:-15000}
+      - CONTENT_SERVICE_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/content_service
+      - CONTENT_SERVICE_SOURCE_CONFIG_PATH=/app/config.yaml
+      - RSSHUB_BASE=http://rsshub:1200
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./media:/app/media
+    restart: unless-stopped
+    command: python -m apps.content_service.main
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rsshub:
+        condition: service_started
+    networks:
+      - scoutx-network
+
+  content-service-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.china
+    container_name: scoutx-content-service-scheduler
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - CONTENT_SERVICE_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/content_service
+      - CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS=${CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS:-15000}
+      - CONTENT_SERVICE_SOURCE_CONFIG_PATH=/app/config.yaml
+      - RSSHUB_BASE=http://rsshub:1200
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./media:/app/media
+    restart: unless-stopped
+    command: python -m apps.content_service.scheduler.runner
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rsshub:
+        condition: service_started
+    networks:
+      - scoutx-network
+
   scoutx-web:
     build:
       context: .
@@ -19,6 +98,16 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - RSSHUB_BASE=http://rsshub:1200
+      - CONTENT_SERVICE_BASE_URL=http://content-service-api:9100
+      - SCOUTX_CONTENT_PROVIDER=${SCOUTX_WEB_CONTENT_PROVIDER:-local}
+      - CONTENT_SERVICE_PULL_LIMIT=${CONTENT_SERVICE_PULL_LIMIT:-100}
+      - CONTENT_SERVICE_PULL_MAX_PAGES=${CONTENT_SERVICE_PULL_MAX_PAGES:-10}
+      - CONTENT_SERVICE_UPDATED_SINCE=${CONTENT_SERVICE_UPDATED_SINCE:-}
+      - CONTENT_SERVICE_PUBLISHED_SINCE=${CONTENT_SERVICE_PUBLISHED_SINCE:-}
+      - CONTENT_SERVICE_SOURCE=${CONTENT_SERVICE_SOURCE:-}
+      - CONTENT_SERVICE_TAG=${CONTENT_SERVICE_TAG:-}
+      - CONTENT_SERVICE_CURSOR=${CONTENT_SERVICE_CURSOR:-}
+      - CONTENT_SERVICE_TIMEOUT_SECONDS=${CONTENT_SERVICE_TIMEOUT_SECONDS:-30}
       - TYPEFULLY_API_KEY=${TYPEFULLY_API_KEY:-}
       - TYPEFULLY_SOCIAL_SET_ID=${TYPEFULLY_SOCIAL_SET_ID:-}
       - X_CONSUMER_KEY=${X_CONSUMER_KEY:-}
@@ -32,6 +121,7 @@ services:
     restart: unless-stopped
     depends_on:
       - rsshub
+      - content-service-api
     networks:
       - scoutx-network
 
@@ -44,6 +134,16 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - RSSHUB_BASE=http://rsshub:1200
+      - CONTENT_SERVICE_BASE_URL=http://content-service-api:9100
+      - SCOUTX_CONTENT_PROVIDER=${SCOUTX_SCHEDULER_CONTENT_PROVIDER:-service}
+      - CONTENT_SERVICE_PULL_LIMIT=${CONTENT_SERVICE_PULL_LIMIT:-100}
+      - CONTENT_SERVICE_PULL_MAX_PAGES=${CONTENT_SERVICE_PULL_MAX_PAGES:-10}
+      - CONTENT_SERVICE_UPDATED_SINCE=${CONTENT_SERVICE_UPDATED_SINCE:-}
+      - CONTENT_SERVICE_PUBLISHED_SINCE=${CONTENT_SERVICE_PUBLISHED_SINCE:-}
+      - CONTENT_SERVICE_SOURCE=${CONTENT_SERVICE_SOURCE:-}
+      - CONTENT_SERVICE_TAG=${CONTENT_SERVICE_TAG:-}
+      - CONTENT_SERVICE_CURSOR=${CONTENT_SERVICE_CURSOR:-}
+      - CONTENT_SERVICE_TIMEOUT_SECONDS=${CONTENT_SERVICE_TIMEOUT_SECONDS:-30}
       - TYPEFULLY_API_KEY=${TYPEFULLY_API_KEY:-}
       - TYPEFULLY_SOCIAL_SET_ID=${TYPEFULLY_SOCIAL_SET_ID:-}
       - X_CONSUMER_KEY=${X_CONSUMER_KEY:-}
@@ -59,6 +159,36 @@ services:
     depends_on:
       - scoutx-web
       - rsshub
+      - content-service-api
+    networks:
+      - scoutx-network
+
+  scoutx-healthcheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.china
+    container_name: scoutx-healthcheck
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - SCOUTX_RUNTIME_HEALTH_CRON=${SCOUTX_RUNTIME_HEALTH_CRON:-*/15 * * * *}
+      - SCOUTX_RUNTIME_HEALTH_CONTENT_SERVICE_URL=http://content-service-api:9100/v1/status
+      - SCOUTX_RUNTIME_HEALTH_SCOUTX_URL=http://scoutx-web:9000/api/runtime-status
+      - SCOUTX_RUNTIME_HEALTH_TIMEOUT_SECONDS=${SCOUTX_RUNTIME_HEALTH_TIMEOUT_SECONDS:-15}
+      - SCOUTX_RUNTIME_HEALTH_MAX_FAILED_SOURCES=${SCOUTX_RUNTIME_HEALTH_MAX_FAILED_SOURCES:-3}
+      - SCOUTX_RUNTIME_HEALTH_MAX_SLOW_SOURCES=${SCOUTX_RUNTIME_HEALTH_MAX_SLOW_SOURCES:-1}
+      - SCOUTX_RUNTIME_HEALTH_MAX_PROVIDER_LAG_MINUTES=${SCOUTX_RUNTIME_HEALTH_MAX_PROVIDER_LAG_MINUTES:-180}
+      - SCOUTX_RUNTIME_HEALTH_MAX_CHECKPOINT_LAG_MINUTES=${SCOUTX_RUNTIME_HEALTH_MAX_CHECKPOINT_LAG_MINUTES:-180}
+      - SCOUTX_RUNTIME_HEALTH_REQUIRE_REPORT_TODAY=${SCOUTX_RUNTIME_HEALTH_REQUIRE_REPORT_TODAY:-false}
+      - SCOUTX_RUNTIME_HEALTH_NOTIFY_ON=${SCOUTX_RUNTIME_HEALTH_NOTIFY_ON:-fail}
+      - SCOUTX_RUNTIME_HEALTH_FEISHU_WEBHOOK=${SCOUTX_RUNTIME_HEALTH_FEISHU_WEBHOOK:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    command: python -m scout_pipeline.runtime_health_runner --config config.yaml
+    depends_on:
+      - scoutx-web
+      - content-service-api
     networks:
       - scoutx-network
 
@@ -68,3 +198,4 @@ networks:
 
 volumes:
   scoutx-data:
+  postgres-data:

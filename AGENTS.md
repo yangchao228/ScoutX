@@ -62,6 +62,20 @@ python validate_sources.py --config config.yaml
 - 若启用 LLM，API 需支持 OpenAI `chat/completions` 兼容协议。
 - RSSHub 依赖由 `config.yaml` 指向本地地址时需保证容器网络可达。
 
+## 本地开发环境约定
+- 本地开发统一使用 `uv + Python 3.12`。
+- 默认虚拟环境目录为 `.venv312`。
+- 推荐初始化命令：
+
+```bash
+uv venv .venv312 --python 3.12
+source .venv312/bin/activate
+uv pip install --python .venv312/bin/python -r requirements.txt
+```
+
+- 本地执行命令时优先使用 `./.venv312/bin/python ...`。
+- 不再建议使用历史上的 `venv/.venv`，避免落到不兼容的 Python 3.14 环境。
+
 ## 已知限制
 - 无测试用例。
 - `publisher.py` 仅占位，未接入 X/Typefully。

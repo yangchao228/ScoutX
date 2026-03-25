@@ -7,14 +7,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from scout_pipeline.report_store import fetch_reports, list_report_dates
+from scout_pipeline.report_store import fetch_reports, fetch_runtime_status, list_report_dates
 from scout_pipeline.utils import load_config
 
 config_path = "config.yaml"
 
 
 def _pick_requested_date(path: str, query: dict[str, list[str]], dates: list[tuple[str, int]]) -> str:
-    if path in ("/", "", "/api/reports", "/api/summary"):
+    if path in ("/", "", "/api/reports", "/api/summary", "/api/runtime-status"):
         requested = query.get("date", [date.today().isoformat()])[0]
     elif path.startswith("/date/"):
         requested = path.split("/date/")[1] or date.today().isoformat()
@@ -318,13 +318,18 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._write_response(200, "ok", "text/plain; charset=utf-8")
             return
 
-        allowed_paths = {"/", "", "/api/reports", "/api/summary"}
+        allowed_paths = {"/", "", "/api/reports", "/api/summary", "/api/runtime-status"}
         if parsed.path not in allowed_paths and not parsed.path.startswith(("/date/", "/api/date/")):
             self._write_response(404, "Not Found", "text/plain; charset=utf-8")
             return
 
         config = load_config(config_path)
         sqlite_path = config.storage.sqlite_path
+        if parsed.path == "/api/runtime-status":
+            body = json.dumps(fetch_runtime_status(sqlite_path), ensure_ascii=False)
+            self._write_response(200, body, "application/json; charset=utf-8")
+            return
+
         dates = list_report_dates(sqlite_path)
         requested = _pick_requested_date(parsed.path, query, dates)
         reports = fetch_reports(sqlite_path, requested)

@@ -212,3 +212,95 @@ def notify_feishu_daily(
 def notify_feishu(webhook: str, item: Item, thread: TweetThread) -> None:
     """兼容旧调用：单条消息也复用日报接口发送。"""
     notify_feishu_daily(webhook, [(item, thread)])
+
+
+def notify_feishu_healthcheck(
+    webhook: str,
+    result: dict,
+    *,
+    content_service_url: str,
+    scoutx_url: str,
+) -> None:
+    status = str(result.get("status") or "unknown").lower()
+    title_map = {
+        "ok": "ScoutX 巡检正常",
+        "warn": "ScoutX 巡检告警",
+        "fail": "ScoutX 巡检失败",
+    }
+    title = title_map.get(status, "ScoutX 巡检状态")
+    checks = result.get("checks") or []
+    status_badge = {
+        "ok": "正常",
+        "warn": "告警",
+        "fail": "失败",
+    }.get(status, status.upper())
+
+    lines = [
+        f"- 总体状态：{status_badge}",
+        f"- 检查时间：{result.get('checked_at') or '-'}",
+        f"- content-service：{content_service_url}",
+        f"- ScoutX：{scoutx_url}",
+    ]
+    elements: list[dict] = [
+        {
+            "tag": "markdown",
+            "content": "**ScoutX 巡检结果**\n\n" + "\n".join(lines),
+        }
+    ]
+
+    recent_failures = result.get("provider_recent_failures") or []
+    if recent_failures:
+        failure_lines = []
+        for item in recent_failures[:5]:
+            name = str(item.get("name") or "unknown")
+            error = _truncate(str(item.get("last_error") or "").replace("\n", " "), 120)
+            last_run_at = str(item.get("last_run_at") or "").strip()
+            line = f"- {name}"
+            if error:
+                line += f": {error}"
+            if last_run_at:
+                line += f" ({last_run_at})"
+            failure_lines.append(line)
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": "**最近失败的 sources**\n\n" + "\n".join(failure_lines),
+            }
+        )
+
+    recent_slow_sources = result.get("provider_recent_slow_sources") or []
+    if recent_slow_sources:
+        slow_lines = []
+        for item in recent_slow_sources[:5]:
+            name = str(item.get("name") or "unknown")
+            duration_ms = int(item.get("last_duration_ms") or 0)
+            last_run_at = str(item.get("last_run_at") or "").strip()
+            line = f"- {name}: {duration_ms} ms"
+            if last_run_at:
+                line += f" ({last_run_at})"
+            slow_lines.append(line)
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": "**最近慢源**\n\n" + "\n".join(slow_lines),
+            }
+        )
+
+    for check in checks:
+        check_status = str(check.get("status") or "unknown").lower()
+        icon = {
+            "ok": "🟢",
+            "warn": "🟡",
+            "fail": "🔴",
+        }.get(check_status, "⚪")
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": (
+                    f"{icon} **{check.get('name') or 'check'}**\n"
+                    f"{check.get('message') or ''}"
+                ),
+            }
+        )
+
+    _post_feishu_card(webhook, title, elements)

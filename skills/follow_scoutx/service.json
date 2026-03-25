@@ -1,0 +1,5 @@
+{
+  "feed_url": "https://feed.follow-scoutx.example.com/v1/public/feed",
+  "meta_url": "https://feed.follow-scoutx.example.com/v1/public/meta",
+  "timeout_seconds": 20
+}

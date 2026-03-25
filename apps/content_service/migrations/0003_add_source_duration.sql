@@ -1,0 +1,2 @@
+ALTER TABLE sources
+  ADD COLUMN IF NOT EXISTS last_duration_ms INTEGER NULL;

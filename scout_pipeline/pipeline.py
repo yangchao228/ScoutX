@@ -6,6 +6,12 @@ from typing import List
 
 from scout_pipeline.analyst import filter_item
 from scout_pipeline.collector import collect_sources
+from scout_pipeline.content_client import (
+    ContentServiceClient,
+    ContentServicePullRequest,
+    ContentServicePullResult,
+    build_content_service_pull_request,
+)
 from scout_pipeline.config import AppConfig
 from scout_pipeline.creator import create_thread
 from scout_pipeline.deduper import Deduper
@@ -16,9 +22,11 @@ from scout_pipeline.notifier import notify_feishu_daily
 from scout_pipeline.publisher import build_publisher
 from scout_pipeline.report_store import (
     filter_unpushed_items,
+    load_sync_cursor,
     mark_items_pushed,
     record_publication_result,
     record_report,
+    save_sync_cursor,
 )
 
 
@@ -166,9 +174,43 @@ def _extract_publication_metadata(response: dict) -> tuple[str | None, str | Non
     return external_id, external_url
 
 
+def _collect_service_input_items(config: AppConfig) -> tuple[list[Item], ContentServicePullRequest, ContentServicePullResult]:
+    client = ContentServiceClient.from_env()
+    checkpoint_cursor = None
+    request = build_content_service_pull_request(client.base_url)
+    if request.checkpoint_enabled and request.checkpoint_key:
+        checkpoint_cursor = load_sync_cursor(
+            config.storage.sqlite_path,
+            provider="content_service",
+            state_key=request.checkpoint_key,
+        )
+        request = build_content_service_pull_request(
+            client.base_url,
+            checkpoint_cursor=checkpoint_cursor,
+        )
+    result = client.pull(request)
+    print(
+        "[content_provider] "
+        f"provider=service items={len(result.items)} checkpoint_enabled={request.checkpoint_enabled} "
+        f"checkpoint_key={request.checkpoint_key or '-'} cursor={'set' if request.cursor else 'none'} "
+        f"pages={result.pages_fetched}"
+    )
+    return result.items, request, result
+
+
+def _collect_input_items(config: AppConfig) -> tuple[list[Item], ContentServicePullRequest | None, ContentServicePullResult | None]:
+    provider = os.getenv("SCOUTX_CONTENT_PROVIDER", "local").strip().lower()
+    if provider == "service":
+        items, request, result = _collect_service_input_items(config)
+        return items, request, result
+    items = collect_sources(config.sources)
+    print(f"[content_provider] provider=local items={len(items)}")
+    return items, None, None
+
+
 def run_once(config: AppConfig) -> None:
     run_started_at = datetime.now(CN_TZ)
-    raw_items = collect_sources(config.sources)
+    raw_items, service_request, service_result = _collect_input_items(config)
     normalized = normalize_items(raw_items)
     filtered = apply_keyword_filters(normalized, config.filters.allow_keywords, config.filters.deny_keywords)
 
@@ -260,6 +302,24 @@ def run_once(config: AppConfig) -> None:
                 f"(run_started_at={run_started_at.strftime('%Y-%m-%d %H:%M:%S %z')}, "
                 f"allowed_hours={sorted(FEISHU_PUSH_HOURS)})"
             )
+
+    if (
+        service_request
+        and service_result
+        and service_request.checkpoint_enabled
+        and service_request.checkpoint_key
+        and service_result.end_cursor
+    ):
+        save_sync_cursor(
+            config.storage.sqlite_path,
+            provider="content_service",
+            state_key=service_request.checkpoint_key,
+            cursor=service_result.end_cursor,
+        )
+        print(
+            "[content_provider] "
+            f"provider=service checkpoint_saved key={service_request.checkpoint_key}"
+        )
 
     print(
         f"[pipeline] collected={len(raw_items)} filtered={len(filtered)} "

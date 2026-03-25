@@ -63,6 +63,17 @@ def _init_db(sqlite_path: str) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sync_state (
+                provider TEXT NOT NULL,
+                state_key TEXT NOT NULL,
+                cursor TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (provider, state_key)
+            )
+            """
+        )
 
 
 def record_report(sqlite_path: str, item: Item, thread: TweetThread) -> None:
@@ -208,6 +219,128 @@ def record_publication_result(
                 response_json,
             ),
         )
+
+
+def load_sync_cursor(
+    sqlite_path: str,
+    provider: str,
+    state_key: str,
+) -> str | None:
+    _init_db(sqlite_path)
+    with sqlite3.connect(sqlite_path) as conn:
+        cur = conn.execute(
+            """
+            SELECT cursor
+            FROM sync_state
+            WHERE provider = ? AND state_key = ?
+            """,
+            (provider, state_key),
+        )
+        row = cur.fetchone()
+        return str(row[0]).strip() or None if row and row[0] is not None else None
+
+
+def save_sync_cursor(
+    sqlite_path: str,
+    provider: str,
+    state_key: str,
+    cursor: str,
+) -> None:
+    _init_db(sqlite_path)
+    with sqlite3.connect(sqlite_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO sync_state (provider, state_key, cursor, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(provider, state_key) DO UPDATE SET
+                cursor=excluded.cursor,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (provider, state_key, cursor),
+        )
+
+
+def fetch_sync_states(sqlite_path: str) -> list[dict[str, Any]]:
+    _init_db(sqlite_path)
+    with sqlite3.connect(sqlite_path) as conn:
+        cur = conn.execute(
+            """
+            SELECT provider, state_key, cursor, updated_at
+            FROM sync_state
+            ORDER BY updated_at DESC, provider ASC, state_key ASC
+            """
+        )
+        return [
+            {
+                "provider": row[0],
+                "state_key": row[1],
+                "cursor": row[2],
+                "updated_at": row[3],
+            }
+            for row in cur.fetchall()
+        ]
+
+
+def fetch_runtime_status(sqlite_path: str) -> dict[str, Any]:
+    _init_db(sqlite_path)
+    with sqlite3.connect(sqlite_path) as conn:
+        cur = conn.execute("SELECT COUNT(1), MAX(created_at) FROM reports")
+        report_count, latest_report_at = cur.fetchone()
+
+        cur = conn.execute(
+            """
+            SELECT report_date, COUNT(1)
+            FROM reports
+            GROUP BY report_date
+            ORDER BY report_date DESC
+            LIMIT 1
+            """
+        )
+        latest_report_row = cur.fetchone()
+        latest_report_date = latest_report_row[0] if latest_report_row else None
+        latest_report_count = int(latest_report_row[1]) if latest_report_row else 0
+
+        cur = conn.execute(
+            """
+            SELECT COUNT(1), MAX(updated_at)
+            FROM publication_records
+            """
+        )
+        publication_count, latest_publication_at = cur.fetchone()
+
+        cur = conn.execute(
+            """
+            SELECT channel, item_id, status, updated_at
+            FROM publication_records
+            ORDER BY updated_at DESC
+            LIMIT 5
+            """
+        )
+        recent_publications = [
+            {
+                "channel": row[0],
+                "item_id": row[1],
+                "status": row[2],
+                "updated_at": row[3],
+            }
+            for row in cur.fetchall()
+        ]
+
+    sync_states = fetch_sync_states(sqlite_path)
+    return {
+        "reports": {
+            "total": int(report_count or 0),
+            "latest_created_at": latest_report_at,
+            "latest_report_date": latest_report_date,
+            "latest_report_count": latest_report_count,
+        },
+        "publications": {
+            "total": int(publication_count or 0),
+            "latest_updated_at": latest_publication_at,
+            "recent": recent_publications,
+        },
+        "sync_states": sync_states,
+    }
 
 
 def _load_publication_map(conn: sqlite3.Connection, item_ids: list[str]) -> dict[str, list[dict[str, Any]]]:

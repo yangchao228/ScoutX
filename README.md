@@ -8,27 +8,226 @@
 ## Quick Start
 
 ```bash
+# 本地开发环境（推荐）
+uv venv .venv312 --python 3.12
+source .venv312/bin/activate
+uv pip install --python .venv312/bin/python -r requirements.txt
+
 # 启动（含 RSSHub）
 docker compose up -d
 
 # 校验所有信息源
-python3 validate_sources.py --config config.yaml
+./.venv312/bin/python validate_sources.py --config config.yaml
 
 # 手动执行一次采集
-python3 main.py --config config.yaml --once
+./.venv312/bin/python main.py --config config.yaml --once
 
 # 手动发送日报（默认读取 config.yaml 的飞书 webhook）
-python3 send_daily_report.py --config config.yaml
+./.venv312/bin/python send_daily_report.py --config config.yaml
 
-# 运行当前已补的无依赖单元测试
-python3 -m unittest tests.test_thread_formatter tests.test_report_store tests.test_oauth1
+# 运行当前测试
+./.venv312/bin/python -m unittest \
+  tests.test_source_validation \
+  tests.test_source_repository \
+  tests.test_content_normalizer \
+  tests.test_content_client \
+  tests.test_thread_formatter \
+  tests.test_report_store \
+  tests.test_oauth1
 ```
+
+说明：
+
+- 本地统一使用 `uv + Python 3.12`，默认虚拟环境目录为 `.venv312`
+- 不再建议使用历史上的 `venv/.venv`，避免落到不兼容的 Python 3.14 环境
+- 如果需要走代理安装依赖，可以先导出：
+
+```bash
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+export ALL_PROXY=socks5://127.0.0.1:7891
+```
+
+## Content-Service 联调与渐进切换
+
+第一阶段建议先做 canary，再切长期运行的 `scoutx-scheduler`。
+
+```bash
+# 1. 启动 content-service 及其依赖
+./scripts/content_service_bootstrap.sh
+
+# 2. 手动跑一次 ScoutX canary，验证 ScoutX <- content-service 消费链路
+./scripts/run_scoutx_content_service_canary.sh
+
+# 额外查看 content-service 当前聚合状态
+curl http://127.0.0.1:9100/v1/status
+
+# 查看 ScoutX consumer 侧运行状态
+curl http://127.0.0.1:9000/api/runtime-status
+./.venv312/bin/python show_runtime_status.py --config config.yaml
+
+# 运行整体验证巡检，失败时退出码为 1
+./.venv312/bin/python check_runtime_health.py --require-report-today
+
+# 巡检失败时推送飞书；默认 notify_on=fail，也可改成 warn
+./.venv312/bin/python check_runtime_health.py --require-report-today --notify-on fail
+
+# 3. 如果 canary 稳定，再把定时 scheduler 切到 service 模式
+docker compose up -d scoutx-scheduler
+
+# 4. 启动长期巡检进程（bootstrap 已默认拉起）
+docker compose up -d scoutx-healthcheck
+```
+
+说明：
+
+- `content-service` API 默认地址是 `http://127.0.0.1:9100`
+- 本地 PostgreSQL 端口映射已调整为 `5433`，避免和机器上已有的 PostgreSQL 冲突
+- `docker-compose.yml` 已支持通过环境变量控制 `SCOUTX_CONTENT_PROVIDER` 和 `CONTENT_SERVICE_PULL_LIMIT`
+- `service` 模式默认会自动翻页，直到拉完结果集或达到 `CONTENT_SERVICE_PULL_MAX_PAGES` 上限
+- 现在 compose 默认只让 `scoutx-scheduler` 走 `service`
+- `scoutx-web` 仍保持 `local` 口径，不参与采集链路切换
+- 默认 source 列表已移除 `jiqizhixin_rss`，因为该地址当前不再提供合法 RSS，而是跳转到外部表单页
+- 默认 source 列表已移除 `36kr_hot_list`，因为它在当前 RSSHub 路径上长期返回 `503`，而 `36kr_news` / `36kr_recommend` / `36kr_newsflashes` 仍保留覆盖
+- 如需临时覆盖：
+  - `SCOUTX_SCHEDULER_CONTENT_PROVIDER=local docker compose up -d scoutx-scheduler`
+  - `SCOUTX_WEB_CONTENT_PROVIDER=service docker compose up -d scoutx-web`
+- `service` 模式现在会把消费 checkpoint 持久化到 `scout.db` 的 `sync_state` 表
+- 默认 checkpoint key 只按消费 scope 计算，不再绑定 `CONTENT_SERVICE_BASE_URL`
+- 第一次 canary 预期会看到 `checkpoint_saved`
+- 如果中间没有新增内容，第二次 canary 预期会看到 `cursor=set` 且 `items=0`
+- `content-service` 当前支持 `GET /v1/status`，可直接查看：
+  - `contents.total`
+  - `contents.latest_updated_at`
+  - `sources.success/failed/slow/never_run`
+  - 最近失败的 source
+  - 最近慢源及最近一次耗时
+- `content-service-scheduler` 现在会输出 JSON 摘要日志，包含每个 source 的抓取结果和耗时
+- `ScoutX` 当前支持 `GET /api/runtime-status`，可直接查看：
+  - `reports.total`
+  - 最新日报日期和条数
+  - 最近 publication 记录
+  - `sync_state` 中保存的 content-service checkpoint
+- 当前支持 `check_runtime_health.py` 巡检脚本：
+  - 读取 `content-service` 和 `ScoutX` 两侧状态
+  - 检查 provider 最近一轮调度是否过旧
+  - 检查 failed source 数量是否超阈值
+  - 检查 slow source 数量是否超阈值
+  - 检查 consumer checkpoint 是否过旧
+  - 可选检查 `latest_report_date` 是否为今天
+  - 默认从 `config.yaml` 的 `notifier.feishu_webhook` 读取飞书 webhook
+  - 支持 `--notify-on fail|warn|always|none`
+- `docker-compose.yml` 现已内置 `scoutx-healthcheck` 常驻服务：
+  - 默认每 15 分钟执行一次巡检
+  - 默认 `notify_on=fail`
+  - 默认通过容器内地址检查 `content-service-api` 与 `scoutx-web`
+  - 可通过环境变量覆盖：
+    - `CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS`
+    - `SCOUTX_RUNTIME_HEALTH_CRON`
+    - `SCOUTX_RUNTIME_HEALTH_NOTIFY_ON`
+    - `SCOUTX_RUNTIME_HEALTH_FEISHU_WEBHOOK`
+    - `SCOUTX_RUNTIME_HEALTH_REQUIRE_REPORT_TODAY`
+    - `SCOUTX_RUNTIME_HEALTH_MAX_FAILED_SOURCES`
+    - `SCOUTX_RUNTIME_HEALTH_MAX_SLOW_SOURCES`
+    - `SCOUTX_RUNTIME_HEALTH_MAX_PROVIDER_LAG_MINUTES`
+    - `SCOUTX_RUNTIME_HEALTH_MAX_CHECKPOINT_LAG_MINUTES`
+  - 查看日志：
+    - `docker logs -f scoutx-healthcheck`
 
 如果 `validate_sources.py` 出现 `Connection refused`，优先检查 RSSHub 是否可达：
 
 ```bash
 curl -I http://127.0.0.1:1200
 ```
+
+## Follow ScoutX 本地 E2E
+
+如果你当前在开发 `skills/follow_scoutx`，推荐直接走一条命令的本地 E2E 流程。
+
+```bash
+# 完整路径：bootstrap content-service -> one-shot ingestion -> skill smoke
+./scripts/run_follow_scoutx_local_e2e.sh
+```
+
+这个脚本会自动完成：
+
+1. 启动或检查 `content-service` 依赖
+2. 等待 `http://127.0.0.1:9100/v1/public/meta` 可用
+3. 执行一次 `content-service` ingestion
+4. 验证 `http://127.0.0.1:9100/v1/public/feed`
+5. 用临时本地 profile 跑一次 `follow_scoutx` preview
+
+如果你的本地服务已经在运行，可以跳过 bootstrap，加快复验：
+
+```bash
+SKIP_BOOTSTRAP=1 ./scripts/run_follow_scoutx_local_e2e.sh
+```
+
+如果只是不想重复 build 镜像：
+
+```bash
+SKIP_BUILD=1 ./scripts/run_follow_scoutx_local_e2e.sh
+```
+
+如果你想复用当前数据，不重新做 one-shot ingestion：
+
+```bash
+SKIP_INGESTION=1 ./scripts/run_follow_scoutx_local_e2e.sh
+```
+
+只想做 skill 侧 smoke 时，可以直接运行：
+
+```bash
+./scripts/smoke_follow_scoutx_local.sh
+```
+
+当前本地开发阶段，`follow_scoutx` skill 包内的 `service.json` 默认仍指向未来的中心托管域名，所以 smoke 脚本会自动临时覆盖本地 feed 地址为：
+
+```text
+http://127.0.0.1:9100/v1/public/feed
+```
+
+更详细的联调记录见：
+
+- [docs/follow_scoutx_local_e2e.md](docs/follow_scoutx_local_e2e.md)
+
+## Follow ScoutX 独立导出
+
+如果你准备把 `skills/follow_scoutx` 单独拆成一个 skill 仓库，可以直接导出：
+
+```bash
+bash scripts/export_follow_scoutx_skill.sh
+```
+
+默认会生成：
+
+```text
+dist/follow_scoutx-skill/
+```
+
+导出内容包括：
+
+- `SKILL.md`
+- `README.md`
+- `service.json`
+- `scripts/follow_scoutx.py`
+- `prompts/*.md`
+
+如果目标目录已存在：
+
+```bash
+OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
+```
+
+如果你想导出到自定义目录：
+
+```bash
+DEST_DIR=/tmp/follow_scoutx-skill OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
+```
+
+更详细说明见：
+
+- [docs/follow_scoutx_packaging.md](docs/follow_scoutx_packaging.md)
 
 ## 发布到 X
 

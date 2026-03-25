@@ -12,9 +12,6 @@ sources:
     name: "36kr_newsflashes"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/36kr/newsflashes"
   - type: rss
-    name: "36kr_hot_list"
-    url: "${RSSHUB_BASE:http://127.0.0.1:1200}/36kr/hot-list"
-  - type: rss
     name: "qbitai_category_news"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/qbitai/category/%E8%B5%84%E8%AE%AF"
   - type: rss
@@ -26,9 +23,6 @@ sources:
   - type: rss
     name: "qbitai_agent_tag"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/qbitai/tag/%E6%99%BA%E8%83%BD%E4%BD%93"
-  - type: rss
-    name: "jiqizhixin_rss"
-    url: "https://www.jiqizhixin.com/rss"
   - type: rss
     name: "infoq_feed"
     url: "https://www.infoq.cn/feed"

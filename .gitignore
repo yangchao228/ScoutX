@@ -28,6 +28,7 @@ scout*.db
 media*/
 server.log
 *.log
+dist/
 
 # OS / editor
 .DS_Store

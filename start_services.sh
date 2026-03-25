@@ -8,6 +8,7 @@ set -e
 PROJECT_DIR="/root/ScoutX_20260216223431"
 LOG_DIR="/root/logs"
 PID_DIR="/root/pids"
+VENV_DIR=".venv312"
 
 echo "🚀 ScoutX 服务启动中..."
 
@@ -18,6 +19,10 @@ mkdir -p "$PID_DIR"
 # 进入项目目录
 cd "$PROJECT_DIR"
 
+activate_env() {
+    source "$VENV_DIR/bin/activate"
+}
+
 # 停止现有的服务
 echo "⏹️ 停止现有服务..."
 pkill -f "web_server.py" || true
@@ -25,18 +30,22 @@ pkill -f "main.py" || true
 sleep 2
 
 # 安装依赖（如果需要）
-if [ ! -d "venv" ]; then
+if [ ! -d "$VENV_DIR" ]; then
     echo "📦 创建 Python 虚拟环境..."
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple requests feedparser beautifulsoup4 lxml pydantic python-dotenv PyYAML croniter tenacity
+    if command -v uv >/dev/null 2>&1; then
+        uv venv "$VENV_DIR" --python 3.12
+    else
+        python3 -m venv "$VENV_DIR"
+    fi
+    activate_env
+    pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 else
     echo "✅ 虚拟环境已存在"
 fi
 
 # 启动 Web 服务
 echo "🌐 启动 Web 服务..."
-source venv/bin/activate
+activate_env
 nohup python web_server.py --host 0.0.0.0 --port 9000 > "$LOG_DIR/scoutx_web.log" 2>&1 &
 WEB_PID=$!
 echo $WEB_PID > "$PID_DIR/web.pid"
@@ -55,7 +64,7 @@ fi
 
 # 配置定时任务
 echo "⏰ 配置定时任务..."
-CRON_JOB="*/30 * * * * cd $PROJECT_DIR && source venv/bin/activate && python main.py --config config.yaml >> $LOG_DIR/scoutx_cron.log 2>&1"
+CRON_JOB="*/30 * * * * cd $PROJECT_DIR && source $VENV_DIR/bin/activate && python main.py --config config.yaml >> $LOG_DIR/scoutx_cron.log 2>&1"
 
 # 备份现有 crontab
 crontab -l > /tmp/crontab_backup.txt 2>/dev/null || true
@@ -77,7 +86,7 @@ read -p "🔍 是否立即执行一次采集任务？(y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "🔄 执行数据采集..."
-    source venv/bin/activate
+    activate_env
     python main.py --config config.yaml --once
 fi
 
