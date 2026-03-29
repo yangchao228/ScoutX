@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import subprocess
 import sys
 from typing import Any
 import urllib.error
@@ -441,6 +442,41 @@ def build_openclaw_cron_command(
     )
 
 
+def build_openclaw_cron_args(
+    profile: dict[str, Any],
+    *,
+    feed_url: str,
+    script_path: str,
+    name: str,
+    agent: str,
+    timeout_seconds: int,
+) -> list[str]:
+    cron_expr = build_openclaw_cron_expression(profile)
+    message = (
+        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
+        "and return the final digest to the current chat."
+    )
+    return [
+        "openclaw",
+        "cron",
+        "add",
+        "--name",
+        name,
+        "--cron",
+        cron_expr,
+        "--agent",
+        agent,
+        "--message",
+        message,
+        "--announce",
+        "--channel",
+        "last",
+        "--expect-final",
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+
+
 def command_show_openclaw_cron(args: argparse.Namespace) -> int:
     profile = load_profile()
     service_config = load_service_config()
@@ -472,6 +508,63 @@ def command_show_openclaw_cron(args: argparse.Namespace) -> int:
 
     sys.stdout.write(command + "\n")
     return 0
+
+
+def command_install_openclaw_cron(args: argparse.Namespace) -> int:
+    profile = load_profile()
+    service_config = load_service_config()
+    feed_url = args.feed_url or os.getenv("FOLLOW_SCOUTX_FEED_URL", str(service_config.get("feed_url") or ""))
+    if not feed_url:
+        raise SystemExit("Missing feed URL. Configure local service.json or pass --feed-url.")
+
+    cron_args = build_openclaw_cron_args(
+        profile,
+        feed_url=feed_url,
+        script_path=args.script_path,
+        name=args.name,
+        agent=args.agent,
+        timeout_seconds=args.timeout_seconds,
+    )
+
+    if not args.apply:
+        payload = {
+            "mode": "dry_run",
+            "command": build_openclaw_cron_command(
+                profile,
+                feed_url=feed_url,
+                script_path=args.script_path,
+                name=args.name,
+                agent=args.agent,
+                timeout_seconds=args.timeout_seconds,
+            ),
+        }
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
+    completed = subprocess.run(
+        cron_args,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    payload = {
+        "mode": "apply",
+        "command": build_openclaw_cron_command(
+            profile,
+            feed_url=feed_url,
+            script_path=args.script_path,
+            name=args.name,
+            agent=args.agent,
+            timeout_seconds=args.timeout_seconds,
+        ),
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0 if completed.returncode == 0 else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -539,6 +632,18 @@ def build_parser() -> argparse.ArgumentParser:
     openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
     openclaw_cron_parser.add_argument("--json", action="store_true")
     openclaw_cron_parser.set_defaults(handler=command_show_openclaw_cron)
+
+    install_openclaw_cron_parser = subparsers.add_parser(
+        "install-openclaw-cron",
+        help="Create the recommended OpenClaw cron job for this Follow ScoutX installation",
+    )
+    install_openclaw_cron_parser.add_argument("--feed-url")
+    install_openclaw_cron_parser.add_argument("--script-path", default="scripts/follow_scoutx.py")
+    install_openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
+    install_openclaw_cron_parser.add_argument("--agent", default="main")
+    install_openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
+    install_openclaw_cron_parser.add_argument("--apply", action="store_true")
+    install_openclaw_cron_parser.set_defaults(handler=command_install_openclaw_cron)
 
     return parser
 

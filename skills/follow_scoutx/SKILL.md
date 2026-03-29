@@ -202,6 +202,21 @@ This prints a recommended `openclaw cron add` command derived from:
 
 If the installation still relies on a temporary public IP, first run `configure-service`, then use `show-openclaw-cron`.
 
+### 5.3 Install the OpenClaw cron job directly
+
+Once setup is confirmed, you can create the OpenClaw cron job directly:
+
+```bash
+python3 skills/follow_scoutx/scripts/follow_scoutx.py install-openclaw-cron --apply
+```
+
+Without `--apply`, the command returns a dry-run JSON payload for inspection.
+
+Use this after:
+
+1. `configure-service` is correct for the current installation
+2. the user's schedule and preferences are already saved with `configure`
+
 ### 6. Recurring delivery in OpenClaw
 
 For OpenClaw recurring delivery, prefer the native channel flow instead of shell cron + inbox.
@@ -225,6 +240,36 @@ Important:
 - prefer `--announce --channel last`
 - prefer `deliver` over raw `preview --json` for chat delivery
 - keep inbox/file output only as fallback or debugging
+- after user confirmation, prefer `install-openclaw-cron --apply` instead of asking the user to copy a cron command manually
+
+## `/follow-scoutx` Setup Flow
+
+When the user enters `/follow-scoutx` or asks to enable the Follow ScoutX skill, use this flow:
+
+1. Explain briefly what the skill does
+2. Ask only the user-facing setup questions
+3. Save preferences with `configure`
+4. If this OpenClaw installation needs a fixed feed endpoint, apply it with `configure-service`
+5. Offer a preview
+6. Ask whether the user wants recurring delivery in the current chat
+7. If yes, create the cron job with `install-openclaw-cron --apply`
+8. Confirm that future results will be delivered back to the current chat channel
+
+Recommended setup questions:
+
+- daily or weekly
+- what time
+- what topics or companies to follow
+- what to exclude
+- which language
+- how many items per digest
+
+Do not ask the user for:
+
+- feed URLs
+- API tokens
+- webhook addresses
+- raw cron expressions
 
 ### 7. Advanced prompt customization
 
