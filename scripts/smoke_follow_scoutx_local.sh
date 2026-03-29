@@ -13,6 +13,7 @@ FOLLOW_SCOUTX_META_URL_OVERRIDE="${FOLLOW_SCOUTX_META_URL_OVERRIDE:-$API_BASE_UR
 MAX_ITEMS="${MAX_ITEMS:-5}"
 TOPICS="${TOPICS:-OpenAI,Anthropic,Cursor,Agent}"
 KEYWORDS_EXCLUDE="${KEYWORDS_EXCLUDE:-融资}"
+NO_PROXY_VALUE="${NO_PROXY_VALUE:-127.0.0.1,localhost}"
 
 if [ ! -x "$PYTHON_BIN" ]; then
   echo "[follow-scoutx-smoke][error] missing python interpreter: $PYTHON_BIN"
@@ -26,10 +27,14 @@ PREVIEW_JSON="$(mktemp)"
 trap 'rm -f "$META_JSON" "$FEED_JSON" "$PREVIEW_JSON"' EXIT
 
 echo "[follow-scoutx-smoke] checking public meta: $FOLLOW_SCOUTX_META_URL_OVERRIDE"
-curl -fsS "$FOLLOW_SCOUTX_META_URL_OVERRIDE" -o "$META_JSON"
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
+  NO_PROXY="$NO_PROXY_VALUE" no_proxy="$NO_PROXY_VALUE" \
+  curl --noproxy "$NO_PROXY_VALUE" -fsS "$FOLLOW_SCOUTX_META_URL_OVERRIDE" -o "$META_JSON"
 
 echo "[follow-scoutx-smoke] checking public feed: $FOLLOW_SCOUTX_FEED_URL_OVERRIDE"
-curl -fsS "$FOLLOW_SCOUTX_FEED_URL_OVERRIDE" -o "$FEED_JSON"
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
+  NO_PROXY="$NO_PROXY_VALUE" no_proxy="$NO_PROXY_VALUE" \
+  curl --noproxy "$NO_PROXY_VALUE" -fsS "$FOLLOW_SCOUTX_FEED_URL_OVERRIDE" -o "$FEED_JSON"
 
 echo "[follow-scoutx-smoke] configuring local skill profile in $FOLLOW_SCOUTX_HOME_DIR"
 FOLLOW_SCOUTX_HOME="$FOLLOW_SCOUTX_HOME_DIR" \
@@ -46,6 +51,10 @@ FOLLOW_SCOUTX_HOME="$FOLLOW_SCOUTX_HOME_DIR" \
 echo "[follow-scoutx-smoke] running skill preview against local feed"
 FOLLOW_SCOUTX_HOME="$FOLLOW_SCOUTX_HOME_DIR" \
 FOLLOW_SCOUTX_FEED_URL="$FOLLOW_SCOUTX_FEED_URL_OVERRIDE" \
+NO_PROXY="$NO_PROXY_VALUE" \
+no_proxy="$NO_PROXY_VALUE" \
+HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= \
+http_proxy= https_proxy= all_proxy= \
 "$PYTHON_BIN" skills/follow_scoutx/scripts/follow_scoutx.py preview --json >"$PREVIEW_JSON"
 
 echo "[follow-scoutx-smoke] summary"
