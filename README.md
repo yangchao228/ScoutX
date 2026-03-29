@@ -3,7 +3,12 @@
 
 ## Lighthouse线上部署
 
-在 Lighthouse 更新 ScoutX 直接按这个流程即可：进入 /root/work/ScoutX → git pull origin main → docker compose up -d --build
+当前推荐看完整部署文档，不要只按一条 `docker compose up -d --build` 直接上线：
+
+- 整体后端部署：
+  [docs/lighthouse_scoutx_backend_deploy.md](docs/lighthouse_scoutx_backend_deploy.md)
+- 仅部署 `scoutx-web` 的旧临时方案：
+  [docs/lighthouse_scoutx_web_deploy.md](docs/lighthouse_scoutx_web_deploy.md)
 
 ## Quick Start
 

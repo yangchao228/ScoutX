@@ -1,5 +1,17 @@
 # ScoutX Web 部署指南（腾讯云 Lighthouse）
 
+注意：这份文档只适用于“先单独部署 `scoutx-web` 看页面”的临时方案。
+
+如果你的目标是：
+
+- 把 ScoutX 整套后端部署到 Lighthouse
+- 对外提供 `content-service` 的公网 feed 域名
+- 让 `skills/follow_scoutx` 直接调用云端后端
+
+请改看：
+
+- [lighthouse_scoutx_backend_deploy.md](/Users/yangchao/codebuddy/ScoutX/docs/lighthouse_scoutx_backend_deploy.md)
+
 这份文档用于指导 OpenClaw 在腾讯云 Lighthouse 上部署 `scoutx-web`。
 
 目标非常明确：
