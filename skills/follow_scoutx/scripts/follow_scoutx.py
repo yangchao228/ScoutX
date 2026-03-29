@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import sys
 from typing import Any
@@ -16,6 +17,15 @@ import urllib.request
 DEFAULT_FEED_URL = "https://feed.follow-scoutx.example.com/v1/public/feed"
 DEFAULT_TIMEOUT_SECONDS = 20
 PROFILE_VERSION = 1
+DAY_TO_CRON = {
+    "sun": "0",
+    "mon": "1",
+    "tue": "2",
+    "wed": "3",
+    "thu": "4",
+    "fri": "5",
+    "sat": "6",
+}
 
 
 def utcnow_iso() -> str:
@@ -41,6 +51,10 @@ def state_path() -> Path:
     return user_home() / "state.json"
 
 
+def local_service_config_path() -> Path:
+    return user_home() / "service.json"
+
+
 def prompts_dir() -> Path:
     return user_home() / "prompts"
 
@@ -54,14 +68,23 @@ def service_config_path() -> Path:
 
 
 def load_service_config() -> dict[str, Any]:
-    path = service_config_path()
-    if not path.exists():
-        return {
-            "feed_url": DEFAULT_FEED_URL,
-            "meta_url": "",
-            "timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
-        }
-    return json.loads(path.read_text(encoding="utf-8"))
+    local_path = local_service_config_path()
+    if local_path.exists():
+        return json.loads(local_path.read_text(encoding="utf-8"))
+
+    bundled_path = service_config_path()
+    if bundled_path.exists():
+        return json.loads(bundled_path.read_text(encoding="utf-8"))
+
+    return {
+        "feed_url": DEFAULT_FEED_URL,
+        "meta_url": "",
+        "timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+    }
+
+
+def save_service_config(config: dict[str, Any]) -> None:
+    save_json(local_service_config_path(), config)
 
 
 def default_profile() -> dict[str, Any]:
@@ -122,6 +145,8 @@ def ensure_local_files() -> None:
         save_json(profile_path(), default_profile())
     if not state_path().exists():
         save_json(state_path(), default_state())
+    if not local_service_config_path().exists():
+        save_service_config(load_service_config())
 
     for source in bundled_prompts_dir().glob("*.md"):
         target = prompts_dir() / source.name
@@ -324,6 +349,20 @@ def command_show_service(_args: argparse.Namespace) -> int:
     return 0
 
 
+def command_configure_service(args: argparse.Namespace) -> int:
+    service_config = load_service_config()
+    if args.feed_url is not None:
+        service_config["feed_url"] = args.feed_url
+    if args.meta_url is not None:
+        service_config["meta_url"] = args.meta_url
+    if args.timeout_seconds is not None:
+        service_config["timeout_seconds"] = args.timeout_seconds
+    save_service_config(service_config)
+    json.dump(service_config, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def command_preview(args: argparse.Namespace) -> int:
     profile = load_profile()
     feed_payload = fetch_feed(feed_url=args.feed_url, feed_file=args.feed_file)
@@ -347,6 +386,91 @@ def command_preview(args: argparse.Namespace) -> int:
         return 0
 
     sys.stdout.write(render_digest(profile, items, generated_at))
+    return 0
+
+
+def command_deliver(args: argparse.Namespace) -> int:
+    preview_args = argparse.Namespace(feed_url=args.feed_url, feed_file=args.feed_file, json=False)
+    return command_preview(preview_args)
+
+
+def build_openclaw_cron_expression(profile: dict[str, Any]) -> str:
+    schedule = profile.get("schedule") or {}
+    time_value = str(schedule.get("time") or "09:00").strip() or "09:00"
+    if ":" in time_value:
+        hour_str, minute_str = time_value.split(":", 1)
+    else:
+        hour_str, minute_str = time_value, "00"
+
+    hour = int(hour_str)
+    minute = int(minute_str)
+    frequency = str(schedule.get("frequency") or "daily").strip().lower()
+    if frequency == "weekly":
+        days = [str(value).strip().lower() for value in schedule.get("days") or []]
+        cron_days = [DAY_TO_CRON[day] for day in days if day in DAY_TO_CRON]
+        if not cron_days:
+            cron_days = [DAY_TO_CRON["mon"]]
+        return f"{minute} {hour} * * {','.join(cron_days)}"
+    return f"{minute} {hour} * * *"
+
+
+def build_openclaw_cron_command(
+    profile: dict[str, Any],
+    *,
+    feed_url: str,
+    script_path: str,
+    name: str,
+    agent: str,
+    timeout_seconds: int,
+) -> str:
+    cron_expr = build_openclaw_cron_expression(profile)
+    message = (
+        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
+        "and return the final digest to the current chat."
+    )
+    return (
+        "openclaw cron add "
+        f"--name {shlex.quote(name)} "
+        f"--cron {shlex.quote(cron_expr)} "
+        f"--agent {shlex.quote(agent)} "
+        f"--message {shlex.quote(message)} "
+        "--announce "
+        "--channel last "
+        "--expect-final "
+        f"--timeout-seconds {timeout_seconds}"
+    )
+
+
+def command_show_openclaw_cron(args: argparse.Namespace) -> int:
+    profile = load_profile()
+    service_config = load_service_config()
+    feed_url = args.feed_url or os.getenv("FOLLOW_SCOUTX_FEED_URL", str(service_config.get("feed_url") or ""))
+    if not feed_url:
+        raise SystemExit("Missing feed URL. Configure local service.json or pass --feed-url.")
+
+    command = build_openclaw_cron_command(
+        profile,
+        feed_url=feed_url,
+        script_path=args.script_path,
+        name=args.name,
+        agent=args.agent,
+        timeout_seconds=args.timeout_seconds,
+    )
+    if args.json:
+        payload = {
+            "name": args.name,
+            "cron": build_openclaw_cron_expression(profile),
+            "agent": args.agent,
+            "feed_url": feed_url,
+            "script_path": args.script_path,
+            "timeout_seconds": args.timeout_seconds,
+            "command": command,
+        }
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+        return 0
+
+    sys.stdout.write(command + "\n")
     return 0
 
 
@@ -381,11 +505,40 @@ def build_parser() -> argparse.ArgumentParser:
     show_service_parser = subparsers.add_parser("show-service", help="Show the bundled central service config")
     show_service_parser.set_defaults(handler=command_show_service)
 
+    configure_service_parser = subparsers.add_parser(
+        "configure-service",
+        help="Create or update the local service endpoint override used by this installation",
+    )
+    configure_service_parser.add_argument("--feed-url")
+    configure_service_parser.add_argument("--meta-url")
+    configure_service_parser.add_argument("--timeout-seconds", type=int)
+    configure_service_parser.set_defaults(handler=command_configure_service)
+
     preview_parser = subparsers.add_parser("preview", help="Preview a digest using the saved local profile")
     preview_parser.add_argument("--feed-url")
     preview_parser.add_argument("--feed-file")
     preview_parser.add_argument("--json", action="store_true")
     preview_parser.set_defaults(handler=command_preview)
+
+    deliver_parser = subparsers.add_parser(
+        "deliver",
+        help="Render a final markdown digest suitable for OpenClaw --announce delivery",
+    )
+    deliver_parser.add_argument("--feed-url")
+    deliver_parser.add_argument("--feed-file")
+    deliver_parser.set_defaults(handler=command_deliver)
+
+    openclaw_cron_parser = subparsers.add_parser(
+        "show-openclaw-cron",
+        help="Print a recommended openclaw cron add command using the saved schedule and service config",
+    )
+    openclaw_cron_parser.add_argument("--feed-url")
+    openclaw_cron_parser.add_argument("--script-path", default="scripts/follow_scoutx.py")
+    openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
+    openclaw_cron_parser.add_argument("--agent", default="main")
+    openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
+    openclaw_cron_parser.add_argument("--json", action="store_true")
+    openclaw_cron_parser.set_defaults(handler=command_show_openclaw_cron)
 
     return parser
 

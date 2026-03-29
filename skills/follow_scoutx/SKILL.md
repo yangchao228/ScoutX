@@ -12,6 +12,7 @@ Use this skill to give the user a personalized ScoutX digest with the same produ
 - setup happens through conversation
 - the user's preferences are stored locally
 - the user should not be asked for backend URLs or raw API tokens during normal setup
+- in OpenClaw, recurring delivery should inherit the current chat channel via `--announce --channel last`
 
 ## When to use
 
@@ -37,7 +38,6 @@ The end user should only configure:
 - frequency
 - time
 - language
-- delivery channel
 - content interests
 - digest style
 
@@ -49,6 +49,8 @@ The end user should not configure:
 - raw JSON filters
 
 Developer-only overrides may exist in the helper script, but do not surface them to normal users unless you are explicitly debugging the skill itself.
+
+In OpenClaw, do not ask the user to choose a delivery channel unless they explicitly want to override the default behavior. The default delivery path should be the current OpenClaw chat channel.
 
 The bundled service endpoint is stored in:
 
@@ -66,7 +68,7 @@ Important files:
 
 - `profile.json`
 - `state.json`
-- `service.json`
+- `service.json` in `~/.follow_scoutx/` for local endpoint override
 - `prompts/digest_intro.md`
 - `prompts/summarize_content.md`
 - `prompts/translate.md`
@@ -91,8 +93,9 @@ Ask only for the user-facing preferences:
 - what time
 - what topics or companies to follow
 - preferred language
-- delivery channel
 - summary style
+
+In OpenClaw, assume delivery is the current chat channel unless the user explicitly asks for a different target.
 
 Translate conversational answers into the helper script arguments.
 
@@ -146,6 +149,24 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py show-service
 
 This is for debugging or operator verification, not for normal end-user setup.
 
+### 4.2 Configure the local service endpoint override
+
+Use only when the current installation needs a specific feed endpoint, such as a temporary public IP before the final domain is ready.
+
+```bash
+python3 skills/follow_scoutx/scripts/follow_scoutx.py configure-service \
+  --feed-url "http://192.144.134.94:9100/v1/public/feed" \
+  --meta-url "http://192.144.134.94:9100/v1/public/meta"
+```
+
+This writes the endpoint override into:
+
+```text
+~/.follow_scoutx/service.json
+```
+
+Do not ask normal users to do this unless you are acting as the operator of that OpenClaw installation.
+
 ### 5. Preview the next digest
 
 Use:
@@ -156,7 +177,56 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py preview
 
 If the backend feed is not available yet, explain that setup is complete but the central feed endpoint is not reachable.
 
-### 6. Advanced prompt customization
+### 5.1 Deliver the digest for OpenClaw channel announcements
+
+When the result is meant to be sent back to the current OpenClaw chat channel, use:
+
+```bash
+python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver
+```
+
+This returns a markdown digest suitable for `openclaw cron add --announce --channel last`.
+
+### 5.2 Show the recommended OpenClaw cron command
+
+When the user wants recurring delivery in OpenClaw, use:
+
+```bash
+python3 skills/follow_scoutx/scripts/follow_scoutx.py show-openclaw-cron
+```
+
+This prints a recommended `openclaw cron add` command derived from:
+
+- the saved schedule in `profile.json`
+- the current local service override in `~/.follow_scoutx/service.json`
+
+If the installation still relies on a temporary public IP, first run `configure-service`, then use `show-openclaw-cron`.
+
+### 6. Recurring delivery in OpenClaw
+
+For OpenClaw recurring delivery, prefer the native channel flow instead of shell cron + inbox.
+
+Target shape:
+
+```bash
+openclaw cron add \
+  --name "follow-scoutx-daily" \
+  --cron "0 9 * * *" \
+  --agent main \
+  --message "Run `python3 scripts/follow_scoutx.py deliver` and return the final digest to the current chat." \
+  --announce \
+  --channel last \
+  --expect-final \
+  --timeout-seconds 120
+```
+
+Important:
+
+- prefer `--announce --channel last`
+- prefer `deliver` over raw `preview --json` for chat delivery
+- keep inbox/file output only as fallback or debugging
+
+### 7. Advanced prompt customization
 
 If the user asks to change tone or style in a durable way:
 
@@ -170,3 +240,4 @@ If the user asks to change tone or style in a durable way:
 - When the user says `make it shorter`, update `--length short`.
 - When the user says `focus more on builders shipping products`, add that preference to the local prompt file instead of inventing backend settings.
 - Treat backend endpoint details as implementation details hidden behind the skill.
+- In OpenClaw, prefer native cron/channel delivery over asking the user to copy shell cron lines.
