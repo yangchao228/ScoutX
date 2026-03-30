@@ -200,6 +200,57 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("item_template", payload["output_contract"])
                 self.assertEqual(payload["items"][0]["summary_text"], "New coding agent workflow")
 
+    def test_compress_summary_text_keeps_first_key_and_last_sections(self) -> None:
+        text = (
+            "第一段：这是背景介绍，说明事情为什么发生。\n\n"
+            "第二段：普通描述，没有特别重点。\n\n"
+            "第三段：数据显示收入增长到20亿美元，因此公司决定扩张。"
+            "研究发现该模型速度提升6.7倍。\n\n"
+            "第四段：参考资料：https://example.com/source\n\n"
+            "最后一段：综上，这件事意味着行业进入新阶段。"
+        )
+
+        compressed = MODULE.compress_summary_text(text, char_budget=120)
+
+        self.assertIn("第一段：这是背景介绍", compressed)
+        self.assertIn("数据显示收入增长到20亿美元", compressed)
+        self.assertIn("最后一段：综上", compressed)
+        self.assertNotIn("参考资料", compressed)
+
+    def test_prepare_digest_payload_uses_compressed_summary_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
+                MODULE.ensure_local_files()
+                profile = MODULE.default_profile()
+                long_summary = (
+                    "第一段：这是背景介绍，说明事情为什么发生，也解释了行业上下文和主要参与方，帮助读者快速理解前因后果。\n\n"
+                    "第二段：普通描述，没有特别重点，但字数很多很多，用来模拟真实文章中间的大段铺垫和重复叙述。\n\n"
+                    "第三段：数据显示收入增长到20亿美元，因此公司决定扩张。研究发现该模型速度提升6.7倍，同时团队强调这是一次关键升级。\n\n"
+                    "第四段：更多普通描述，没有特别重点，但会拉长整体字数，模拟资讯稿中常见的细节堆积和重复背景。\n\n"
+                    "最后一段：综上，这件事意味着行业进入新阶段，也说明公司接下来会继续加大投入。"
+                )
+                payload = MODULE.build_prepare_digest_payload(
+                    profile,
+                    {"generated_at": "2026-03-30T09:00:00Z"},
+                    [
+                        {
+                            "content_id": "cnt_1",
+                            "title": "OpenAI agent runtime update",
+                            "summary": long_summary,
+                            "url": "https://example.com/1",
+                            "published_at": "2026-03-30T08:00:00Z",
+                            "sources": ["openai_blog"],
+                            "tags": ["agent"],
+                        }
+                    ],
+                )
+                compressed = MODULE.compress_summary_text(long_summary, char_budget=120)
+
+                self.assertLess(len(compressed), len(long_summary))
+                self.assertIn("第一段", compressed)
+                self.assertIn("最后一段", compressed)
+                self.assertEqual(payload["items"][0]["summary_text"], MODULE.compress_summary_text(long_summary))
+
 
 if __name__ == "__main__":
     unittest.main()

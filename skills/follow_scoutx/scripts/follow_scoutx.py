@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ import urllib.request
 DEFAULT_FEED_URL = "http://192.144.134.94:9100/v1/public/feed"
 DEFAULT_TIMEOUT_SECONDS = 20
 PROFILE_VERSION = 1
+DEFAULT_SUMMARY_BUDGET_CHARS = 1200
 DAY_TO_CRON = {
     "sun": "0",
     "mon": "1",
@@ -265,6 +267,144 @@ def normalize_feed_item(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_whitespace(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def split_paragraphs(text: str) -> list[str]:
+    normalized = normalize_whitespace(text)
+    if not normalized:
+        return []
+    return [part.strip() for part in re.split(r"\n\s*\n", normalized) if part.strip()]
+
+
+def split_sentences(text: str) -> list[str]:
+    normalized = normalize_whitespace(text)
+    if not normalized:
+        return []
+    parts = re.split(r"(?<=[。！？!?；;])\s*", normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def strip_trailing_noise(paragraphs: list[str]) -> list[str]:
+    noise_patterns = [
+        "本文来自",
+        "参考资料",
+        "责任编辑",
+        "编辑：",
+        "作者：",
+        "文章来源",
+    ]
+    cleaned = list(paragraphs)
+    while cleaned and any(pattern in cleaned[-1] for pattern in noise_patterns):
+        cleaned.pop()
+    return cleaned
+
+
+def dedupe_sentences(sentences: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for sentence in sentences:
+        key = re.sub(r"\s+", "", sentence)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(sentence)
+    return deduped
+
+
+def sentence_priority(sentence: str) -> int:
+    keywords = [
+        "因此",
+        "所以",
+        "综上",
+        "总之",
+        "最终",
+        "结论是",
+        "认为",
+        "指出",
+        "提出",
+        "强调",
+        "观点是",
+        "数据显示",
+        "结果表明",
+        "研究发现",
+        "超过",
+        "增长到",
+        "关键",
+        "重要",
+        "核心",
+        "值得注意的是",
+    ]
+    score = 0
+    for keyword in keywords:
+        if keyword in sentence:
+            score += 2
+    if re.search(r"\d", sentence):
+        score += 1
+    if re.search(r"%|亿美元|万亿|million|billion|stars?|GPU|API|Beta|Alpha", sentence, re.IGNORECASE):
+        score += 1
+    return score
+
+
+def compress_summary_text(text: str, *, char_budget: int = DEFAULT_SUMMARY_BUDGET_CHARS) -> str:
+    paragraphs = strip_trailing_noise(split_paragraphs(text))
+    if not paragraphs:
+        return ""
+
+    if len("".join(paragraphs)) <= char_budget:
+        return "\n\n".join(paragraphs)
+
+    first_paragraph = paragraphs[0]
+    last_paragraph = paragraphs[-1] if len(paragraphs) > 1 else ""
+    middle_paragraphs = paragraphs[1:-1] if len(paragraphs) > 2 else []
+
+    middle_sentences = dedupe_sentences(
+        [sentence for paragraph in middle_paragraphs for sentence in split_sentences(paragraph)]
+    )
+    selected_middle = [sentence for sentence in middle_sentences if sentence_priority(sentence) > 0]
+    if not selected_middle:
+        selected_middle = middle_sentences[:8]
+
+    assembled_parts: list[str] = [first_paragraph]
+    if selected_middle:
+        assembled_parts.append(" ".join(selected_middle))
+    if last_paragraph and last_paragraph != first_paragraph:
+        assembled_parts.append(last_paragraph)
+
+    result = "\n\n".join(part for part in assembled_parts if part).strip()
+    if len(result) <= char_budget:
+        return result
+
+    parts = [first_paragraph]
+    if last_paragraph and last_paragraph != first_paragraph:
+        remaining_budget = max(char_budget - len(first_paragraph) - len(last_paragraph) - 4, 0)
+    else:
+        remaining_budget = max(char_budget - len(first_paragraph) - 2, 0)
+
+    if remaining_budget > 0 and selected_middle:
+        middle_text = ""
+        for sentence in selected_middle:
+            candidate = f"{middle_text} {sentence}".strip()
+            if len(candidate) > remaining_budget:
+                break
+            middle_text = candidate
+        if middle_text:
+            parts.append(middle_text)
+
+    if last_paragraph and last_paragraph != first_paragraph:
+        parts.append(last_paragraph)
+
+    result = "\n\n".join(part for part in parts if part).strip()
+    if len(result) <= char_budget:
+        return result
+
+    return result[:char_budget].rstrip()
+
+
 def item_text(item: dict[str, Any]) -> str:
     return "\n".join(
         [
@@ -445,7 +585,7 @@ def build_prepare_digest_payload(
             {
                 "content_id": item["content_id"],
                 "title": item["title"],
-                "summary_text": item["summary"],
+                "summary_text": compress_summary_text(item["summary"]),
                 "canonical_url": item["url"],
                 "published_at": item["published_at"],
                 "sources": item["sources"],
