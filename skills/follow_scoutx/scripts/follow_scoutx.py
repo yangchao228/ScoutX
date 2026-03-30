@@ -38,6 +38,10 @@ def skill_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def current_script_path() -> str:
+    return str(Path(__file__).resolve())
+
+
 def user_home() -> Path:
     override = os.getenv("FOLLOW_SCOUTX_HOME", "").strip()
     if override:
@@ -787,7 +791,7 @@ def build_parser() -> argparse.ArgumentParser:
     openclaw_cron_parser.add_argument("--feed-url")
     openclaw_cron_parser.add_argument(
         "--script-path",
-        default="skills/follow_scoutx/scripts/follow_scoutx.py",
+        default=current_script_path(),
     )
     openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     openclaw_cron_parser.add_argument("--agent", default="main")
@@ -802,7 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
     install_openclaw_cron_parser.add_argument("--feed-url")
     install_openclaw_cron_parser.add_argument(
         "--script-path",
-        default="skills/follow_scoutx/scripts/follow_scoutx.py",
+        default=current_script_path(),
     )
     install_openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     install_openclaw_cron_parser.add_argument("--agent", default="main")

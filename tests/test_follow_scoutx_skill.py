@@ -71,6 +71,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
         weekly_profile["schedule"]["days"] = ["mon", "thu"]
         self.assertEqual(MODULE.build_openclaw_cron_expression(weekly_profile), "15 8 * * 1,4")
 
+    def test_current_script_path_points_to_loaded_script(self) -> None:
+        self.assertEqual(Path(MODULE.current_script_path()), SCRIPT_PATH)
+
     def test_show_openclaw_cron_uses_local_service_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
@@ -97,6 +100,14 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("--expect-final", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
                 self.assertIn("prepare-digest", command)
+
+    def test_parser_defaults_to_current_script_path_for_openclaw_cron_commands(self) -> None:
+        parser = MODULE.build_parser()
+        args = parser.parse_args(["show-openclaw-cron"])
+        self.assertEqual(args.script_path, str(SCRIPT_PATH))
+
+        args = parser.parse_args(["install-openclaw-cron"])
+        self.assertEqual(args.script_path, str(SCRIPT_PATH))
 
     def test_placeholder_feed_url_is_rejected_with_operator_message(self) -> None:
         with self.assertRaises(SystemExit) as exc:
