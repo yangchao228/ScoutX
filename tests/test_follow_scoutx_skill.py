@@ -94,8 +94,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("openclaw cron add", command)
                 self.assertIn("--announce", command)
                 self.assertIn("--channel last", command)
-                self.assertNotIn("--expect-final", command)
+                self.assertIn("--expect-final", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
+                self.assertIn("prepare-digest", command)
 
     def test_placeholder_feed_url_is_rejected_with_operator_message(self) -> None:
         with self.assertRaises(SystemExit) as exc:
@@ -118,9 +119,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("--announce", cron_args)
         self.assertIn("--channel", cron_args)
         self.assertIn("last", cron_args)
-        self.assertNotIn("--expect-final", cron_args)
+        self.assertIn("--expect-final", cron_args)
         self.assertIn(
-            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and send the command stdout verbatim to the current chat.",
+            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest`, read the JSON output, follow the included prompts and output_contract exactly, then return the final digest text to the current chat.",
             cron_args,
         )
 
@@ -160,6 +161,33 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("Follow ScoutX Digest / 摘要", digest)
         self.assertIn("Generated at: 2026-03-30T09:00:00Z", digest)
         self.assertIn("No matching items found.", digest)
+
+    def test_build_prepare_digest_payload_includes_prompts_and_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
+                MODULE.ensure_local_files()
+                profile = MODULE.default_profile()
+                payload = MODULE.build_prepare_digest_payload(
+                    profile,
+                    {"generated_at": "2026-03-30T09:00:00Z"},
+                    [
+                        {
+                            "content_id": "cnt_1",
+                            "title": "OpenAI agent runtime update",
+                            "summary": "New coding agent workflow",
+                            "url": "https://example.com/1",
+                            "published_at": "2026-03-30T08:00:00Z",
+                            "sources": ["openai_blog"],
+                            "tags": ["agent"],
+                        }
+                    ],
+                )
+
+                self.assertEqual(payload["status"], "ok")
+                self.assertEqual(payload["stats"]["item_count"], 1)
+                self.assertIn("digest_intro", payload["prompts"])
+                self.assertIn("item_template", payload["output_contract"])
+                self.assertEqual(payload["items"][0]["summary_text"], "New coding agent workflow")
 
 
 if __name__ == "__main__":

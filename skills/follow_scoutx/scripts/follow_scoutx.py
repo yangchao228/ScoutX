@@ -194,6 +194,20 @@ def save_state(state: dict[str, Any]) -> None:
     save_json(state_path(), state)
 
 
+def load_prompt_texts() -> dict[str, str]:
+    ensure_local_files()
+    mapping = {
+        "digest_intro": "digest_intro.md",
+        "summarize_content": "summarize_content.md",
+        "translate": "translate.md",
+    }
+    prompts: dict[str, str] = {}
+    for key, filename in mapping.items():
+        prompt_path = prompts_dir() / filename
+        prompts[key] = prompt_path.read_text(encoding="utf-8").strip()
+    return prompts
+
+
 def split_csv(value: str | None) -> list[str] | None:
     if value is None:
         return None
@@ -376,6 +390,69 @@ def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generate
     return "\n".join(lines).strip() + "\n"
 
 
+def build_prepare_digest_payload(
+    profile: dict[str, Any],
+    feed_payload: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    generated_at = str(feed_payload.get("generated_at") or utcnow_iso())
+    return {
+        "status": "ok",
+        "generated_at": generated_at,
+        "config": {
+            "language": profile["preferences"].get("language", "zh-CN"),
+            "style": profile.get("style", {}),
+            "schedule": profile.get("schedule", {}),
+            "preferences": {
+                "topics": profile["preferences"].get("topics", []),
+                "keywords_include": profile["preferences"].get("keywords_include", []),
+                "keywords_exclude": profile["preferences"].get("keywords_exclude", []),
+                "preferred_sources": profile["preferences"].get("preferred_sources", []),
+                "max_items": profile["preferences"].get("max_items", 8),
+            },
+        },
+        "stats": {
+            "item_count": len(items),
+            "feed_generated_at": generated_at,
+        },
+        "output_contract": {
+            "title": digest_copy(profile["preferences"].get("language", "zh-CN"))["title"],
+            "header_lines": [
+                "Generated at: <feed generated time>",
+                "Items: <number of selected items>",
+            ],
+            "item_template": [
+                "<index>. <title>",
+                "<one compact but complete paragraph based only on the item's summary_text>",
+                "Source: <primary source>",
+                "Published: <published_at if present>",
+                "Link: <canonical_url>",
+            ],
+            "rules": [
+                "Use only the selected items in this payload.",
+                "Do not invent facts beyond title, summary_text, source, published_at, and canonical_url.",
+                "Keep one numbered section per item.",
+                "Do not rewrite into bullet-point highlights under each item.",
+                "Preserve original links exactly.",
+                "Respect config.language and the prompt texts in prompts.",
+            ],
+        },
+        "items": [
+            {
+                "content_id": item["content_id"],
+                "title": item["title"],
+                "summary_text": item["summary"],
+                "canonical_url": item["url"],
+                "published_at": item["published_at"],
+                "sources": item["sources"],
+                "tags": item["tags"],
+            }
+            for item in items
+        ],
+        "prompts": load_prompt_texts(),
+    }
+
+
 def command_configure(args: argparse.Namespace) -> int:
     profile = load_profile()
     profile = update_profile_from_args(profile, args)
@@ -448,6 +525,23 @@ def command_deliver(args: argparse.Namespace) -> int:
     return command_preview(preview_args)
 
 
+def command_prepare_digest(args: argparse.Namespace) -> int:
+    profile = load_profile()
+    feed_payload = fetch_feed(feed_url=args.feed_url, feed_file=args.feed_file)
+    items = build_preview_items(profile, feed_payload)
+
+    state = load_state()
+    state["last_preview_at"] = utcnow_iso()
+    state["last_feed_fetch_at"] = str(feed_payload.get("generated_at") or utcnow_iso())
+    state["last_digest_item_ids"] = [item["content_id"] for item in items if item["content_id"]]
+    save_state(state)
+
+    payload = build_prepare_digest_payload(profile, feed_payload, items)
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
 def build_openclaw_cron_expression(profile: dict[str, Any]) -> str:
     schedule = profile.get("schedule") or {}
     time_value = str(schedule.get("time") or "09:00").strip() or "09:00"
@@ -479,8 +573,9 @@ def build_openclaw_cron_command(
 ) -> str:
     cron_expr = build_openclaw_cron_expression(profile)
     message = (
-        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
-        "and send the command stdout verbatim to the current chat."
+        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} prepare-digest`, "
+        "read the JSON output, follow the included prompts and output_contract exactly, "
+        "then return the final digest text to the current chat."
     )
     return (
         "openclaw cron add "
@@ -490,6 +585,7 @@ def build_openclaw_cron_command(
         f"--message {shlex.quote(message)} "
         "--announce "
         "--channel last "
+        "--expect-final "
         f"--timeout-seconds {timeout_seconds}"
     )
 
@@ -505,8 +601,9 @@ def build_openclaw_cron_args(
 ) -> list[str]:
     cron_expr = build_openclaw_cron_expression(profile)
     message = (
-        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
-        "and send the command stdout verbatim to the current chat."
+        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} prepare-digest`, "
+        "read the JSON output, follow the included prompts and output_contract exactly, "
+        "then return the final digest text to the current chat."
     )
     return [
         "openclaw",
@@ -523,6 +620,7 @@ def build_openclaw_cron_args(
         "--announce",
         "--channel",
         "last",
+        "--expect-final",
         "--timeout-seconds",
         str(timeout_seconds),
     ]
@@ -673,6 +771,14 @@ def build_parser() -> argparse.ArgumentParser:
     deliver_parser.add_argument("--feed-url")
     deliver_parser.add_argument("--feed-file")
     deliver_parser.set_defaults(handler=command_deliver)
+
+    prepare_digest_parser = subparsers.add_parser(
+        "prepare-digest",
+        help="Output a structured JSON payload for prompt-controlled LLM digest generation",
+    )
+    prepare_digest_parser.add_argument("--feed-url")
+    prepare_digest_parser.add_argument("--feed-file")
+    prepare_digest_parser.set_defaults(handler=command_prepare_digest)
 
     openclaw_cron_parser = subparsers.add_parser(
         "show-openclaw-cron",

@@ -11,6 +11,7 @@ Use this skill to give the user a personalized ScoutX digest with the same produ
 - the user installs a skill in OpenClaw or Claude Code
 - setup happens through conversation
 - the user's preferences are stored locally
+- each manual run or scheduled run pulls fresh content from the ScoutX public feed at execution time
 - the user should not be asked for backend URLs or raw API tokens during normal setup
 - in OpenClaw, recurring delivery should inherit the current chat channel via `--announce --channel last`
 
@@ -186,7 +187,24 @@ If the backend feed is not available yet, explain that setup is complete but the
 
 If the configured endpoint is obviously still a placeholder, explain that the package was shipped without a real Follow ScoutX feed address and escalate to the operator. Do not turn this into a question asking the end user for the feed URL.
 
-### 5.1 Deliver the digest for OpenClaw channel announcements
+### 5.1 Prepare a prompt-controlled digest payload for OpenClaw
+
+When the result should be remixed by the agent with stable prompt control, use:
+
+```bash
+python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest
+```
+
+This returns one JSON payload containing:
+
+- the selected ScoutX items
+- the local user config
+- the digest prompts
+- a strict output contract for the final message
+
+Use this path when OpenClaw should produce the final message text with LLM help.
+
+### 5.2 Deliver the raw deterministic digest
 
 When the result is meant to be sent back to the current OpenClaw chat channel, use:
 
@@ -194,9 +212,15 @@ When the result is meant to be sent back to the current OpenClaw chat channel, u
 python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver
 ```
 
-This returns a markdown digest suitable for `openclaw cron add --announce --channel last`.
+This returns a deterministic plain-text digest directly from the selected ScoutX items.
 
-### 5.2 Show the recommended OpenClaw cron command
+Important behavior:
+
+- ScoutX is the central content source
+- Follow ScoutX does not maintain a separate message cache
+- every preview or delivery run fetches fresh data from the configured ScoutX public feed before filtering and formatting it
+
+### 5.3 Show the recommended OpenClaw cron command
 
 When the user wants recurring delivery in OpenClaw, use:
 
@@ -211,7 +235,7 @@ This prints a recommended `openclaw cron add` command derived from:
 
 If the installation still relies on a temporary public IP, first run `configure-service`, then use `show-openclaw-cron`.
 
-### 5.3 Install the OpenClaw cron job directly
+### 5.4 Install the OpenClaw cron job directly
 
 Once setup is confirmed, you can create the OpenClaw cron job directly:
 
@@ -237,17 +261,18 @@ openclaw cron add \
   --name "follow-scoutx-daily" \
   --cron "0 9 * * *" \
   --agent main \
-  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and send the command stdout verbatim to the current chat." \
+  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest`, read the JSON output, follow the included prompts and output_contract exactly, then return the final digest text to the current chat." \
   --announce \
   --channel last \
+  --expect-final \
   --timeout-seconds 120
 ```
 
 Important:
 
 - prefer `--announce --channel last`
-- do not use `--expect-final`; `deliver` already returns the final chat-ready digest
-- prefer `deliver` over raw `preview --json` for chat delivery
+- use `prepare-digest` when you want prompt-controlled LLM remixing with a fixed schema
+- use `deliver` only as a deterministic raw fallback or debugging path
 - keep inbox/file output only as fallback or debugging
 - after user confirmation, prefer `install-openclaw-cron --apply` instead of asking the user to copy a cron command manually
 
