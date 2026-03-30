@@ -491,7 +491,7 @@ def build_openclaw_cron_command(
     cron_expr = build_openclaw_cron_expression(profile)
     message = (
         f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
-        "and return the final digest to the current chat."
+        "and send the command stdout verbatim to the current chat."
     )
     return (
         "openclaw cron add "
@@ -501,7 +501,6 @@ def build_openclaw_cron_command(
         f"--message {shlex.quote(message)} "
         "--announce "
         "--channel last "
-        "--expect-final "
         f"--timeout-seconds {timeout_seconds}"
     )
 
@@ -518,7 +517,7 @@ def build_openclaw_cron_args(
     cron_expr = build_openclaw_cron_expression(profile)
     message = (
         f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver` "
-        "and return the final digest to the current chat."
+        "and send the command stdout verbatim to the current chat."
     )
     return [
         "openclaw",
@@ -535,7 +534,6 @@ def build_openclaw_cron_args(
         "--announce",
         "--channel",
         "last",
-        "--expect-final",
         "--timeout-seconds",
         str(timeout_seconds),
     ]

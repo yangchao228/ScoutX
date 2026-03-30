@@ -94,6 +94,7 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("openclaw cron add", command)
                 self.assertIn("--announce", command)
                 self.assertIn("--channel last", command)
+                self.assertNotIn("--expect-final", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
 
     def test_placeholder_feed_url_is_rejected_with_operator_message(self) -> None:
@@ -117,8 +118,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("--announce", cron_args)
         self.assertIn("--channel", cron_args)
         self.assertIn("last", cron_args)
+        self.assertNotIn("--expect-final", cron_args)
         self.assertIn(
-            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and return the final digest to the current chat.",
+            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and send the command stdout verbatim to the current chat.",
             cron_args,
         )
 

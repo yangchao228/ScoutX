@@ -237,16 +237,16 @@ openclaw cron add \
   --name "follow-scoutx-daily" \
   --cron "0 9 * * *" \
   --agent main \
-  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and return the final digest to the current chat." \
+  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and send the command stdout verbatim to the current chat." \
   --announce \
   --channel last \
-  --expect-final \
   --timeout-seconds 120
 ```
 
 Important:
 
 - prefer `--announce --channel last`
+- do not use `--expect-final`; `deliver` already returns the final chat-ready digest
 - prefer `deliver` over raw `preview --json` for chat delivery
 - keep inbox/file output only as fallback or debugging
 - after user confirmation, prefer `install-openclaw-cron --apply` instead of asking the user to copy a cron command manually
