@@ -1,6 +1,4 @@
-# Follow ScoutX 小白指南
-
-这份说明按 `follow-good-builders` 的方式来理解。
+# Follow ScoutX 使用指南
 
 对普通用户来说，`Follow ScoutX` 应该是这样用的：
 
