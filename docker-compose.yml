@@ -48,7 +48,7 @@ services:
       - CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS=${CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS:-15000}
       - CONTENT_SERVICE_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/content_service
       - CONTENT_SERVICE_SOURCE_CONFIG_PATH=/app/config.yaml
-      - RSSHUB_BASE=http://rsshub:1200
+      - RSSHUB_BASE=${RSSHUB_BASE:-http://scoutx-rsshub:1200}
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./media:/app/media
@@ -73,7 +73,7 @@ services:
       - CONTENT_SERVICE_DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/content_service
       - CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS=${CONTENT_SERVICE_SLOW_SOURCE_THRESHOLD_MS:-15000}
       - CONTENT_SERVICE_SOURCE_CONFIG_PATH=/app/config.yaml
-      - RSSHUB_BASE=http://rsshub:1200
+      - RSSHUB_BASE=${RSSHUB_BASE:-http://scoutx-rsshub:1200}
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./media:/app/media
@@ -97,7 +97,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - RSSHUB_BASE=http://rsshub:1200
+      - RSSHUB_BASE=${RSSHUB_BASE:-http://scoutx-rsshub:1200}
       - CONTENT_SERVICE_BASE_URL=http://content-service-api:9100
       - SCOUTX_CONTENT_PROVIDER=${SCOUTX_WEB_CONTENT_PROVIDER:-local}
       - CONTENT_SERVICE_PULL_LIMIT=${CONTENT_SERVICE_PULL_LIMIT:-100}
@@ -133,7 +133,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
-      - RSSHUB_BASE=http://rsshub:1200
+      - RSSHUB_BASE=${RSSHUB_BASE:-http://scoutx-rsshub:1200}
       - CONTENT_SERVICE_BASE_URL=http://content-service-api:9100
       - SCOUTX_CONTENT_PROVIDER=${SCOUTX_SCHEDULER_CONTENT_PROVIDER:-service}
       - CONTENT_SERVICE_PULL_LIMIT=${CONTENT_SERVICE_PULL_LIMIT:-100}

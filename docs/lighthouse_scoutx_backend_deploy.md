@@ -241,10 +241,10 @@ SCOUTX_RUNTIME_HEALTH_NOTIFY_ON=fail
 
 ```bash
 cd /root/work/ScoutX
-git pull origin main
+git pull origin v2
 ```
 
-如果你用的不是 `main`，改成目标分支即可。
+如果你用的不是 `v2`，改成目标分支即可。
 
 ### Step 2. 准备 `.env`
 
@@ -252,16 +252,26 @@ git pull origin main
 
 ```bash
 cat > .env <<'EOF'
-CONTENT_SERVICE_PUBLIC_BASE_URL=https://feed.your-domain.com
+CONTENT_SERVICE_PUBLIC_BASE_URL=https://input.reai.group
 CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_LIMIT=100
 CONTENT_SERVICE_PUBLIC_FEED_DEFAULT_HOURS=72
 CONTENT_SERVICE_PUBLIC_FEED_CACHE_TTL_SECONDS=300
+RSSHUB_BASE=http://scoutx-rsshub:1200
 SCOUTX_RUNTIME_HEALTH_NOTIFY_ON=fail
 SCOUTX_RUNTIME_HEALTH_FEISHU_WEBHOOK=
 EOF
 ```
 
 如果后面要接 X/Typefully，再继续往 `.env` 里补相关变量。
+
+这里的 `RSSHUB_BASE` 应该由 ScoutX 服务端部署统一控制，而不是让每个 OpenClaw 或 skill 单独配置。
+在 Docker 网络内，推荐固定使用容器名：
+
+```bash
+RSSHUB_BASE=http://scoutx-rsshub:1200
+```
+
+这样 `content-service-api`、`content-service-scheduler`、`scoutx-web`、`scoutx-scheduler` 都会走同一个 RSSHub 地址，避免某个容器误用 `127.0.0.1:1200` 导致采集失败。
 
 如果你准备只开巡检告警、不开发日报推送，记得同时把服务器上的 `config.yaml` 改成：
 
