@@ -96,6 +96,13 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("--channel last", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
 
+    def test_placeholder_feed_url_is_rejected_with_operator_message(self) -> None:
+        with self.assertRaises(SystemExit) as exc:
+            MODULE.ensure_real_feed_url("https://feed.follow-scoutx.example.com/v1/public/feed")
+
+        self.assertIn("operator setup incomplete", str(exc.exception))
+        self.assertIn("should not be asked to provide a feed URL", str(exc.exception))
+
     def test_build_openclaw_cron_args_matches_command_intent(self) -> None:
         profile = MODULE.default_profile()
         cron_args = MODULE.build_openclaw_cron_args(

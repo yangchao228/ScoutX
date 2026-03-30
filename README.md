@@ -208,6 +208,8 @@ bash scripts/export_follow_scoutx_skill.sh
 
 ```text
 dist/follow_scoutx-skill/
+dist/follow_scoutx-skill.zip
+dist/follow_scoutx-skill.tar.gz
 ```
 
 导出内容包括：
@@ -217,6 +219,11 @@ dist/follow_scoutx-skill/
 - `service.json`
 - `scripts/follow_scoutx.py`
 - `prompts/*.md`
+
+默认也会顺手生成可直接分享的压缩包：
+
+- `dist/follow_scoutx-skill.zip`
+- `dist/follow_scoutx-skill.tar.gz`
 
 如果目标目录已存在：
 
@@ -228,6 +235,12 @@ OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
 
 ```bash
 DEST_DIR=/tmp/follow_scoutx-skill OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
+```
+
+如果只想导出目录，不生成压缩包：
+
+```bash
+CREATE_ARCHIVES=0 OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
 ```
 
 更详细说明见：

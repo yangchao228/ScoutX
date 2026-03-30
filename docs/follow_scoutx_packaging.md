@@ -18,6 +18,8 @@ bash scripts/export_follow_scoutx_skill.sh
 
 ```text
 dist/follow_scoutx-skill/
+dist/follow_scoutx-skill.zip
+dist/follow_scoutx-skill.tar.gz
 ```
 
 其中包含：
@@ -32,6 +34,11 @@ dist/follow_scoutx-skill/
 
 - [repo_README.md](/Users/yangchao/codebuddy/ScoutX/skills/follow_scoutx/repo_README.md)
 
+默认还会额外生成两个压缩包，方便直接分享给别人：
+
+- `dist/follow_scoutx-skill.zip`
+- `dist/follow_scoutx-skill.tar.gz`
+
 ## 覆盖已有导出目录
 
 ```bash
@@ -42,6 +49,12 @@ OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
 
 ```bash
 DEST_DIR=/tmp/follow_scoutx-skill OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
+```
+
+## 只导出目录，不生成压缩包
+
+```bash
+CREATE_ARCHIVES=0 OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
 ```
 
 ## 典型后续步骤

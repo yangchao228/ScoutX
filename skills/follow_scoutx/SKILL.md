@@ -52,6 +52,13 @@ Developer-only overrides may exist in the helper script, but do not surface them
 
 In OpenClaw, do not ask the user to choose a delivery channel unless they explicitly want to override the default behavior. The default delivery path should be the current OpenClaw chat channel.
 
+If the bundled `service.json` still points to a placeholder domain such as `*.example.com`, that is an operator packaging problem, not an end-user setup problem. In that case:
+
+- do not ask the user for a feed URL
+- do not ask the user to inspect `service.json`
+- say that setup is saved but the Follow ScoutX service is not configured on this installation yet
+- tell the user the operator must update the packaged `service.json` or run `configure-service`
+
 The bundled service endpoint is stored in:
 
 - `service.json`
@@ -177,6 +184,8 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py preview
 
 If the backend feed is not available yet, explain that setup is complete but the central feed endpoint is not reachable.
 
+If the configured endpoint is obviously still a placeholder, explain that the package was shipped without a real Follow ScoutX feed address and escalate to the operator. Do not turn this into a question asking the end user for the feed URL.
+
 ### 5.1 Deliver the digest for OpenClaw channel announcements
 
 When the result is meant to be sent back to the current OpenClaw chat channel, use:
@@ -270,6 +279,8 @@ Do not ask the user for:
 - API tokens
 - webhook addresses
 - raw cron expressions
+
+If preview or delivery cannot proceed because the packaged service endpoint is still placeholder-only, tell the user the installation is not fully configured by the operator yet. Do not ask the user to supply that address manually.
 
 ### 7. Advanced prompt customization
 
