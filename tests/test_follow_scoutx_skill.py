@@ -122,6 +122,40 @@ class FollowScoutXSkillTest(unittest.TestCase):
             cron_args,
         )
 
+    def test_render_digest_uses_localized_labels_and_markdown_links(self) -> None:
+        profile = MODULE.default_profile()
+        profile["preferences"]["language"] = "zh-CN"
+        profile["preferences"]["topics"] = ["OpenAI", "Agent"]
+        digest = MODULE.render_digest(
+            profile,
+            [
+                {
+                    "content_id": "cnt_1",
+                    "title": "OpenAI agent runtime update",
+                    "summary": "New coding agent workflow",
+                    "url": "https://example.com/1",
+                    "published_at": "2026-03-30T08:00:00Z",
+                    "sources": ["openai_blog"],
+                    "tags": ["agent"],
+                }
+            ],
+            "2026-03-30T09:00:00Z",
+        )
+
+        self.assertIn("# Follow ScoutX 摘要", digest)
+        self.assertIn("- 主题: OpenAI, Agent", digest)
+        self.assertIn("## 1. [OpenAI agent runtime update](https://example.com/1)", digest)
+        self.assertIn("- 查看原文: [link](https://example.com/1)", digest)
+
+    def test_render_digest_bilingual_uses_bilingual_labels(self) -> None:
+        profile = MODULE.default_profile()
+        profile["preferences"]["language"] = "bilingual"
+        digest = MODULE.render_digest(profile, [], "2026-03-30T09:00:00Z")
+
+        self.assertIn("# Follow ScoutX Digest / 摘要", digest)
+        self.assertIn("- Generated at / 生成时间: 2026-03-30T09:00:00Z", digest)
+        self.assertIn("No matching items found / 本次没有匹配到内容。", digest)
+
 
 if __name__ == "__main__":
     unittest.main()

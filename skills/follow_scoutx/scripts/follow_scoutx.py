@@ -316,29 +316,73 @@ def build_preview_items(profile: dict[str, Any], feed_payload: dict[str, Any]) -
     return matched[:limit]
 
 
+def digest_copy(language: str) -> dict[str, str]:
+    if language == "zh-CN":
+        return {
+            "title": "Follow ScoutX 摘要",
+            "generated_at": "生成时间",
+            "items": "条目数",
+            "empty": "本次没有匹配到内容。",
+            "source": "来源",
+            "published": "发布时间",
+            "read_more": "查看原文",
+            "subscription": "订阅",
+            "topics": "主题",
+        }
+    if language == "bilingual":
+        return {
+            "title": "Follow ScoutX Digest / 摘要",
+            "generated_at": "Generated at / 生成时间",
+            "items": "Items / 条目数",
+            "empty": "No matching items found / 本次没有匹配到内容。",
+            "source": "Source / 来源",
+            "published": "Published / 发布时间",
+            "read_more": "Read / 查看原文",
+            "subscription": "Subscription / 订阅",
+            "topics": "Topics / 主题",
+        }
+    return {
+        "title": "Follow ScoutX Digest",
+        "generated_at": "Generated at",
+        "items": "Items",
+        "empty": "No matching items found.",
+        "source": "Source",
+        "published": "Published",
+        "read_more": "Read",
+        "subscription": "Subscription",
+        "topics": "Topics",
+    }
+
+
 def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generated_at: str) -> str:
     language = profile["preferences"].get("language", "zh-CN")
-    title = "Follow ScoutX Digest"
-    if language == "zh-CN":
-        title = "Follow ScoutX 摘要"
-    elif language == "bilingual":
-        title = "Follow ScoutX Digest / 摘要"
-
-    lines = [f"# {title}", "", f"- Generated at: {generated_at}", f"- Items: {len(items)}", ""]
+    copy = digest_copy(language)
+    topics = ", ".join(profile["preferences"].get("topics", [])) or "-"
+    lines = [
+        f"# {copy['title']}",
+        "",
+        f"- {copy['generated_at']}: {generated_at}",
+        f"- {copy['items']}: {len(items)}",
+        f"- {copy['topics']}: {topics}",
+        "",
+    ]
     if not items:
-        lines.append("No matching items found.")
+        lines.append(copy["empty"])
         return "\n".join(lines).strip() + "\n"
 
     for index, item in enumerate(items, start=1):
         source = item["sources"][0] if item["sources"] else "unknown"
-        lines.append(f"## {index}. {item['title']}")
+        title_line = item["title"]
+        if item["url"]:
+            title_line = f"[{item['title']}]({item['url']})"
+        lines.append(f"## {index}. {title_line}")
         if item["summary"]:
             lines.append(item["summary"])
-        lines.append(f"- Source: {source}")
+        lines.append(f"- {copy['source']}: {source}")
         if item["published_at"]:
-            lines.append(f"- Published: {item['published_at']}")
+            lines.append(f"- {copy['published']}: {item['published_at']}")
         if item["url"]:
-            lines.append(f"- Link: {item['url']}")
+            lines.append(f"- {copy['read_more']}: [link]({item['url']})")
         lines.append("")
     return "\n".join(lines).strip() + "\n"
 
