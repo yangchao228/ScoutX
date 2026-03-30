@@ -21,6 +21,16 @@ DEFAULT_FEED_URL = "http://192.144.134.94:9100/v1/public/feed"
 DEFAULT_TIMEOUT_SECONDS = 20
 PROFILE_VERSION = 1
 DEFAULT_SUMMARY_BUDGET_CHARS = 1200
+STYLE_TO_SUMMARY_BUDGET = {
+    "short": 700,
+    "medium": 900,
+    "long": 1200,
+}
+STYLE_TO_ITEM_TIMEOUT_SECONDS = {
+    "short": 45,
+    "medium": 60,
+    "long": 90,
+}
 DAY_TO_CRON = {
     "sun": "0",
     "mon": "1",
@@ -253,6 +263,16 @@ def update_profile_from_args(profile: dict[str, Any], args: argparse.Namespace) 
         profile["style"]["tone"] = args.tone
 
     return profile
+
+
+def summary_char_budget(profile: dict[str, Any]) -> int:
+    style = str(profile.get("style", {}).get("length") or "medium").strip().lower()
+    return STYLE_TO_SUMMARY_BUDGET.get(style, DEFAULT_SUMMARY_BUDGET_CHARS)
+
+
+def item_timeout_seconds(profile: dict[str, Any]) -> int:
+    style = str(profile.get("style", {}).get("length") or "medium").strip().lower()
+    return STYLE_TO_ITEM_TIMEOUT_SECONDS.get(style, 60)
 
 
 def normalize_feed_item(raw: dict[str, Any]) -> dict[str, Any]:
@@ -540,6 +560,8 @@ def build_prepare_digest_payload(
     items: list[dict[str, Any]],
 ) -> dict[str, Any]:
     generated_at = str(feed_payload.get("generated_at") or utcnow_iso())
+    per_item_budget = summary_char_budget(profile)
+    per_item_timeout = item_timeout_seconds(profile)
     return {
         "status": "ok",
         "generated_at": generated_at,
@@ -559,6 +581,11 @@ def build_prepare_digest_payload(
             "item_count": len(items),
             "feed_generated_at": generated_at,
         },
+        "processing": {
+            "per_item_input_char_budget": per_item_budget,
+            "per_item_timeout_seconds": per_item_timeout,
+            "mode": "item_by_item",
+        },
         "output_contract": {
             "title": digest_copy(profile["preferences"].get("language", "zh-CN"))["title"],
             "header_lines": [
@@ -572,9 +599,21 @@ def build_prepare_digest_payload(
                 "Published: <published_at if present>",
                 "Link: <canonical_url>",
             ],
+            "failure_template": [
+                "<index>. <title>",
+                "Status: failed",
+                "Reason: <why the item could not be fully generated within the allowed budget or timeout>",
+                "Source: <primary source>",
+                "Published: <published_at if present>",
+                "Link: <canonical_url>",
+            ],
             "rules": [
                 "Use only the selected items in this payload.",
                 "Do not invent facts beyond title, summary_text, source, published_at, and canonical_url.",
+                "Process items one by one, not all at once.",
+                "Treat processing.per_item_timeout_seconds as the maximum target time for each item.",
+                "If an item cannot be fully produced within the allowed budget or timeout, emit the failure_template for that item instead of skipping it.",
+                "Do not silently drop items.",
                 "Keep one numbered section per item.",
                 "Do not rewrite into bullet-point highlights under each item.",
                 "Preserve original links exactly.",
@@ -585,7 +624,7 @@ def build_prepare_digest_payload(
             {
                 "content_id": item["content_id"],
                 "title": item["title"],
-                "summary_text": compress_summary_text(item["summary"]),
+                "summary_text": compress_summary_text(item["summary"], char_budget=per_item_budget),
                 "canonical_url": item["url"],
                 "published_at": item["published_at"],
                 "sources": item["sources"],

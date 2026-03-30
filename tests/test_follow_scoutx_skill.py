@@ -198,6 +198,10 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertEqual(payload["stats"]["item_count"], 1)
                 self.assertIn("digest_intro", payload["prompts"])
                 self.assertIn("item_template", payload["output_contract"])
+                self.assertIn("failure_template", payload["output_contract"])
+                self.assertEqual(payload["processing"]["mode"], "item_by_item")
+                self.assertEqual(payload["processing"]["per_item_input_char_budget"], 700)
+                self.assertEqual(payload["processing"]["per_item_timeout_seconds"], 45)
                 self.assertEqual(payload["items"][0]["summary_text"], "New coding agent workflow")
 
     def test_compress_summary_text_keeps_first_key_and_last_sections(self) -> None:
@@ -249,7 +253,42 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertLess(len(compressed), len(long_summary))
                 self.assertIn("第一段", compressed)
                 self.assertIn("最后一段", compressed)
-                self.assertEqual(payload["items"][0]["summary_text"], MODULE.compress_summary_text(long_summary))
+                self.assertEqual(
+                    payload["items"][0]["summary_text"],
+                    MODULE.compress_summary_text(
+                        long_summary,
+                        char_budget=payload["processing"]["per_item_input_char_budget"],
+                    ),
+                )
+
+    def test_prepare_digest_payload_uses_style_budgets_and_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
+                MODULE.ensure_local_files()
+                profile = MODULE.default_profile()
+                profile["style"]["length"] = "medium"
+                payload = MODULE.build_prepare_digest_payload(
+                    profile,
+                    {"generated_at": "2026-03-30T09:00:00Z"},
+                    [
+                        {
+                            "content_id": "cnt_1",
+                            "title": "OpenAI agent runtime update",
+                            "summary": "第一段：背景。\n\n第二段：因此团队决定推进。\n\n最后一段：综上，值得关注。",
+                            "url": "https://example.com/1",
+                            "published_at": "2026-03-30T08:00:00Z",
+                            "sources": ["openai_blog"],
+                            "tags": ["agent"],
+                        }
+                    ],
+                )
+
+                self.assertEqual(payload["processing"]["per_item_input_char_budget"], 900)
+                self.assertEqual(payload["processing"]["per_item_timeout_seconds"], 60)
+                self.assertIn(
+                    "If an item cannot be fully produced within the allowed budget or timeout",
+                    "\n".join(payload["output_contract"]["rules"]),
+                )
 
 
 if __name__ == "__main__":
