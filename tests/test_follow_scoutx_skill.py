@@ -86,7 +86,7 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 command = MODULE.build_openclaw_cron_command(
                     profile,
                     feed_url="http://192.144.134.94:9100/v1/public/feed",
-                    script_path="scripts/follow_scoutx.py",
+                    script_path="skills/follow_scoutx/scripts/follow_scoutx.py",
                     name="follow-scoutx-daily",
                     agent="main",
                     timeout_seconds=120,
@@ -101,7 +101,7 @@ class FollowScoutXSkillTest(unittest.TestCase):
         cron_args = MODULE.build_openclaw_cron_args(
             profile,
             feed_url="http://192.144.134.94:9100/v1/public/feed",
-            script_path="scripts/follow_scoutx.py",
+            script_path="skills/follow_scoutx/scripts/follow_scoutx.py",
             name="follow-scoutx-daily",
             agent="main",
             timeout_seconds=120,
@@ -111,7 +111,7 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("--channel", cron_args)
         self.assertIn("last", cron_args)
         self.assertIn(
-            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 scripts/follow_scoutx.py deliver` and return the final digest to the current chat.",
+            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and return the final digest to the current chat.",
             cron_args,
         )
 

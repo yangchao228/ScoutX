@@ -228,7 +228,7 @@ openclaw cron add \
   --name "follow-scoutx-daily" \
   --cron "0 9 * * *" \
   --agent main \
-  --message "Run `python3 scripts/follow_scoutx.py deliver` and return the final digest to the current chat." \
+  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver` and return the final digest to the current chat." \
   --announce \
   --channel last \
   --expect-final \

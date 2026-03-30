@@ -626,7 +626,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print a recommended openclaw cron add command using the saved schedule and service config",
     )
     openclaw_cron_parser.add_argument("--feed-url")
-    openclaw_cron_parser.add_argument("--script-path", default="scripts/follow_scoutx.py")
+    openclaw_cron_parser.add_argument(
+        "--script-path",
+        default="skills/follow_scoutx/scripts/follow_scoutx.py",
+    )
     openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     openclaw_cron_parser.add_argument("--agent", default="main")
     openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
@@ -638,7 +641,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create the recommended OpenClaw cron job for this Follow ScoutX installation",
     )
     install_openclaw_cron_parser.add_argument("--feed-url")
-    install_openclaw_cron_parser.add_argument("--script-path", default="scripts/follow_scoutx.py")
+    install_openclaw_cron_parser.add_argument(
+        "--script-path",
+        default="skills/follow_scoutx/scripts/follow_scoutx.py",
+    )
     install_openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     install_openclaw_cron_parser.add_argument("--agent", default="main")
     install_openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
