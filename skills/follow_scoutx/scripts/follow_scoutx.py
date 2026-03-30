@@ -320,50 +320,42 @@ def digest_copy(language: str) -> dict[str, str]:
     if language == "zh-CN":
         return {
             "title": "Follow ScoutX 摘要",
-            "generated_at": "生成时间",
-            "items": "条目数",
-            "empty": "本次没有匹配到内容。",
-            "source": "来源",
-            "published": "发布时间",
-            "read_more": "查看原文",
-            "subscription": "订阅",
-            "topics": "主题",
+            "empty": "No matching items found.",
+            "generated_at": "Generated at",
+            "items": "Items",
+            "source": "Source",
+            "published": "Published",
+            "link": "Link",
         }
     if language == "bilingual":
         return {
             "title": "Follow ScoutX Digest / 摘要",
-            "generated_at": "Generated at / 生成时间",
-            "items": "Items / 条目数",
-            "empty": "No matching items found / 本次没有匹配到内容。",
-            "source": "Source / 来源",
-            "published": "Published / 发布时间",
-            "read_more": "Read / 查看原文",
-            "subscription": "Subscription / 订阅",
-            "topics": "Topics / 主题",
+            "empty": "No matching items found.",
+            "generated_at": "Generated at",
+            "items": "Items",
+            "source": "Source",
+            "published": "Published",
+            "link": "Link",
         }
     return {
         "title": "Follow ScoutX Digest",
+        "empty": "No matching items found.",
         "generated_at": "Generated at",
         "items": "Items",
-        "empty": "No matching items found.",
         "source": "Source",
         "published": "Published",
-        "read_more": "Read",
-        "subscription": "Subscription",
-        "topics": "Topics",
+        "link": "Link",
     }
 
 
 def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generated_at: str) -> str:
     language = profile["preferences"].get("language", "zh-CN")
     copy = digest_copy(language)
-    topics = ", ".join(profile["preferences"].get("topics", [])) or "-"
     lines = [
-        f"# {copy['title']}",
+        copy["title"],
         "",
-        f"- {copy['generated_at']}: {generated_at}",
-        f"- {copy['items']}: {len(items)}",
-        f"- {copy['topics']}: {topics}",
+        f"{copy['generated_at']}: {generated_at}",
+        f"{copy['items']}: {len(items)}",
         "",
     ]
     if not items:
@@ -372,17 +364,14 @@ def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generate
 
     for index, item in enumerate(items, start=1):
         source = item["sources"][0] if item["sources"] else "unknown"
-        title_line = item["title"]
-        if item["url"]:
-            title_line = f"[{item['title']}]({item['url']})"
-        lines.append(f"## {index}. {title_line}")
+        lines.append(f"{index}. {item['title']}")
         if item["summary"]:
             lines.append(item["summary"])
-        lines.append(f"- {copy['source']}: {source}")
+        lines.append(f"{copy['source']}: {source}")
         if item["published_at"]:
-            lines.append(f"- {copy['published']}: {item['published_at']}")
+            lines.append(f"{copy['published']}: {item['published_at']}")
         if item["url"]:
-            lines.append(f"- {copy['read_more']}: [link]({item['url']})")
+            lines.append(f"{copy['link']}: {item['url']}")
         lines.append("")
     return "\n".join(lines).strip() + "\n"
 
