@@ -12,10 +12,11 @@ import subprocess
 import sys
 from typing import Any
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
-DEFAULT_FEED_URL = "https://feed.follow-scoutx.example.com/v1/public/feed"
+DEFAULT_FEED_URL = "http://192.144.134.94:9100/v1/public/feed"
 DEFAULT_TIMEOUT_SECONDS = 20
 PROFILE_VERSION = 1
 DAY_TO_CRON = {
@@ -82,6 +83,24 @@ def load_service_config() -> dict[str, Any]:
         "meta_url": "",
         "timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
     }
+
+
+def is_placeholder_feed_url(url: str | None) -> bool:
+    if not url:
+        return True
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.netloc or "").lower()
+    return host.endswith(".example.com") or host == "example.com"
+
+
+def ensure_real_feed_url(url: str | None) -> str:
+    if is_placeholder_feed_url(url):
+        raise SystemExit(
+            "Follow ScoutX operator setup incomplete: the bundled feed URL is still a placeholder. "
+            "Update the distributed skill package's service.json or run configure-service on this installation. "
+            "Normal end users should not be asked to provide a feed URL."
+        )
+    return str(url)
 
 
 def save_service_config(config: dict[str, Any]) -> None:
@@ -262,6 +281,7 @@ def fetch_feed(*, feed_url: str | None = None, feed_file: str | None = None) -> 
 
     service_config = load_service_config()
     target_url = feed_url or os.getenv("FOLLOW_SCOUTX_FEED_URL", str(service_config.get("feed_url") or DEFAULT_FEED_URL))
+    target_url = ensure_real_feed_url(target_url)
     timeout = int(
         os.getenv(
             "FOLLOW_SCOUTX_TIMEOUT_SECONDS",
@@ -483,6 +503,7 @@ def command_show_openclaw_cron(args: argparse.Namespace) -> int:
     feed_url = args.feed_url or os.getenv("FOLLOW_SCOUTX_FEED_URL", str(service_config.get("feed_url") or ""))
     if not feed_url:
         raise SystemExit("Missing feed URL. Configure local service.json or pass --feed-url.")
+    feed_url = ensure_real_feed_url(feed_url)
 
     command = build_openclaw_cron_command(
         profile,
@@ -516,6 +537,7 @@ def command_install_openclaw_cron(args: argparse.Namespace) -> int:
     feed_url = args.feed_url or os.getenv("FOLLOW_SCOUTX_FEED_URL", str(service_config.get("feed_url") or ""))
     if not feed_url:
         raise SystemExit("Missing feed URL. Configure local service.json or pass --feed-url.")
+    feed_url = ensure_real_feed_url(feed_url)
 
     cron_args = build_openclaw_cron_args(
         profile,

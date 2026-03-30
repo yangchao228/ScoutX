@@ -1,5 +1,5 @@
 {
-  "feed_url": "https://feed.follow-scoutx.example.com/v1/public/feed",
-  "meta_url": "https://feed.follow-scoutx.example.com/v1/public/meta",
+  "feed_url": "http://192.144.134.94:9100/v1/public/feed",
+  "meta_url": "http://192.144.134.94:9100/v1/public/meta",
   "timeout_seconds": 20
 }
