@@ -529,6 +529,7 @@ def digest_copy(language: str) -> dict[str, str]:
 def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generated_at: str) -> str:
     language = profile["preferences"].get("language", "zh-CN")
     copy = digest_copy(language)
+    per_item_budget = summary_char_budget(profile)
     lines = [
         copy["title"],
         "",
@@ -543,8 +544,9 @@ def render_digest(profile: dict[str, Any], items: list[dict[str, Any]], generate
     for index, item in enumerate(items, start=1):
         source = item["sources"][0] if item["sources"] else "unknown"
         lines.append(f"{index}. {item['title']}")
-        if item["summary"]:
-            lines.append(item["summary"])
+        summary = compress_summary_text(item["summary"], char_budget=per_item_budget) if item["summary"] else ""
+        if summary:
+            lines.append(summary)
         lines.append(f"{copy['source']}: {source}")
         if item["published_at"]:
             lines.append(f"{copy['published']}: {item['published_at']}")

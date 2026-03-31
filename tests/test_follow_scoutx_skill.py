@@ -173,6 +173,39 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("Generated at: 2026-03-30T09:00:00Z", digest)
         self.assertIn("No matching items found.", digest)
 
+    def test_render_digest_compresses_long_summary_before_output(self) -> None:
+        profile = MODULE.default_profile()
+        profile["style"]["length"] = "short"
+        long_summary = (
+            "第一段：这是背景介绍，说明事情为什么发生，也解释了行业上下文和主要参与方，帮助读者快速理解前因后果。" * 3
+            + "\n\n"
+            + "第二段：普通描述，没有特别重点，但字数很多很多，用来模拟真实文章中间的大段铺垫和重复叙述。" * 4
+            + "\n\n"
+            "第三段：数据显示收入增长到20亿美元，因此公司决定扩张。研究发现该模型速度提升6.7倍，同时团队强调这是一次关键升级。\n\n"
+            "第四段：更多普通描述，没有特别重点，但会拉长整体字数，模拟资讯稿中常见的细节堆积和重复背景。" * 4
+            + "\n\n"
+            "最后一段：综上，这件事意味着行业进入新阶段，也说明公司接下来会继续加大投入。"
+        )
+        digest = MODULE.render_digest(
+            profile,
+            [
+                {
+                    "content_id": "cnt_1",
+                    "title": "Long summary item",
+                    "summary": long_summary,
+                    "url": "https://example.com/1",
+                    "published_at": "2026-03-30T08:00:00Z",
+                    "sources": ["openai_blog"],
+                    "tags": ["agent"],
+                }
+            ],
+            "2026-03-30T09:00:00Z",
+        )
+
+        self.assertNotIn("第四段：更多普通描述", digest)
+        self.assertIn("第三段：数据显示收入增长到20亿美元", digest)
+        self.assertIn("最后一段：综上", digest)
+
     def test_build_prepare_digest_payload_includes_prompts_and_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
