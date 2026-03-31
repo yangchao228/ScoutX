@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 import time
 from typing import List
 from urllib.parse import urljoin
@@ -13,6 +14,16 @@ from bs4 import BeautifulSoup
 
 from scout_pipeline.config import HTMLSource, RSSSource
 from scout_pipeline.models import Item, MediaAsset
+
+PLACEHOLDER_DESCRIPTION_MARKERS = (
+    "点击查看原文",
+    "查看原文",
+    "阅读全文",
+    "read more",
+    "continue reading",
+)
+DETAIL_FALLBACK_SOURCE_PREFIXES = ("36kr_", "infoq")
+DETAIL_EXCERPT_CHAR_LIMIT = 1200
 
 
 @dataclass(frozen=True)
@@ -44,6 +55,111 @@ def _build_headers(*, is_rss: bool) -> dict[str, str]:
     if is_rss:
         headers["Accept"] = "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*"
     return headers
+
+
+def _clean_text(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip())
+
+
+def _is_placeholder_description(value: str) -> bool:
+    normalized = _clean_text(value)
+    if not normalized:
+        return True
+    compact = normalized.replace(" ", "").lower()
+    return any(marker.replace(" ", "").lower() in compact for marker in PLACEHOLDER_DESCRIPTION_MARKERS)
+
+
+def _should_fetch_detail_fallback(source_name: str) -> bool:
+    lowered = (source_name or "").strip().lower()
+    return any(lowered.startswith(prefix) for prefix in DETAIL_FALLBACK_SOURCE_PREFIXES)
+
+
+def _extract_meta_description(soup: BeautifulSoup) -> str:
+    for attrs in (
+        {"property": "og:description"},
+        {"name": "description"},
+        {"name": "twitter:description"},
+    ):
+        node = soup.find("meta", attrs=attrs)
+        if node is None:
+            continue
+        content = _clean_text(str(node.get("content") or ""))
+        if content and not _is_placeholder_description(content):
+            return content
+    return ""
+
+
+def _extract_detail_paragraphs(soup: BeautifulSoup) -> list[str]:
+    selectors = (
+        "article p",
+        "main p",
+        ".article p",
+        ".article-content p",
+        ".article_content p",
+        ".post-content p",
+        ".content p",
+        ".composite-body p",
+        ".text p",
+        "p",
+    )
+    for selector in selectors:
+        values: list[str] = []
+        seen: set[str] = set()
+        for node in soup.select(selector):
+            text = _clean_text(node.get_text(" ", strip=True))
+            if len(text) < 30 or _is_placeholder_description(text):
+                continue
+            if text in seen:
+                continue
+            seen.add(text)
+            values.append(text)
+        if values:
+            return values
+    return []
+
+
+def _fetch_detail_description(item: Item) -> str:
+    if not item.url:
+        return ""
+    response = requests.get(
+        item.url,
+        timeout=(5, 15),
+        headers=_build_headers(is_rss=False),
+    )
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "lxml")
+    fragments: list[str] = []
+
+    meta_description = _extract_meta_description(soup)
+    if meta_description:
+        fragments.append(meta_description)
+
+    for paragraph in _extract_detail_paragraphs(soup):
+        if any(paragraph in existing or existing in paragraph for existing in fragments):
+            continue
+        fragments.append(paragraph)
+        if len("\n\n".join(fragments)) >= DETAIL_EXCERPT_CHAR_LIMIT:
+            break
+
+    excerpt = "\n\n".join(fragments).strip()
+    if len(excerpt) > DETAIL_EXCERPT_CHAR_LIMIT:
+        excerpt = excerpt[:DETAIL_EXCERPT_CHAR_LIMIT].rstrip()
+    return excerpt
+
+
+def _maybe_enrich_item_description(item: Item) -> None:
+    if not _should_fetch_detail_fallback(item.source):
+        return
+    if not _is_placeholder_description(item.description):
+        return
+    try:
+        detail_description = _fetch_detail_description(item)
+    except Exception as exc:
+        print(f"[collector][warn] {item.source} detail fallback failed: {exc}")
+        return
+    if detail_description:
+        item.description = detail_description
+        item.raw["detail_fallback"] = "article_html"
 
 
 def _policy_for_source(source: RSSSource | HTMLSource) -> FetchPolicy:
@@ -149,18 +265,19 @@ def collect_rss(source: RSSSource) -> List[Item]:
         if not title and not url:
             continue
 
-        items.append(
-            Item(
-                source=source.name,
-                title=title,
-                url=url,
-                description=description,
-                published_at=_extract_entry_published_at(entry),
-                comments=comments,
-                media=media,
-                raw={"entry": entry},
-            )
+        item = Item(
+            source=source.name,
+            title=title,
+            url=url,
+            description=description,
+            published_at=_extract_entry_published_at(entry),
+            comments=comments,
+            media=media,
+            raw={"entry": entry},
         )
+        _maybe_enrich_item_description(item)
+
+        items.append(item)
     return items
 
 

@@ -61,6 +61,54 @@ class CollectorTest(unittest.TestCase):
 
         self.assertIn("redirected to non-feed page", str(ctx.exception))
 
+    def test_collect_rss_enriches_placeholder_summary_from_detail_page(self) -> None:
+        source = RSSSource(type="rss", name="infoq_feed", url="https://www.infoq.cn/feed")
+
+        feed_response = Mock(
+            status_code=200,
+            content=b"<rss></rss>",
+            url=str(source.url),
+            headers={"Content-Type": "application/rss+xml"},
+        )
+        feed_response.raise_for_status.return_value = None
+
+        detail_response = Mock(
+            status_code=200,
+            text="""
+            <html>
+              <head>
+                <meta property="og:description" content="这是一段来自详情页的有效摘要，用来替换占位符。" />
+              </head>
+              <body>
+                <article><p>正文第一段。</p><p>正文第二段。</p></article>
+              </body>
+            </html>
+            """,
+        )
+        detail_response.raise_for_status.return_value = None
+
+        feed = SimpleNamespace(
+            bozo=0,
+            entries=[
+                SimpleNamespace(
+                    title="InfoQ article",
+                    link="https://www.infoq.cn/article/example",
+                    summary="点击查看原文>",
+                    links=[],
+                )
+            ],
+        )
+
+        with patch("scout_pipeline.collector.requests.get", side_effect=[feed_response, detail_response]), patch(
+            "scout_pipeline.collector.feedparser.parse",
+            return_value=feed,
+        ):
+            items = collect_rss(source)
+
+        self.assertEqual(len(items), 1)
+        self.assertIn("有效摘要", items[0].description)
+        self.assertEqual(items[0].raw.get("detail_fallback"), "article_html")
+
 
 if __name__ == "__main__":
     unittest.main()

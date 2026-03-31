@@ -13,6 +13,14 @@ from apps.content_service.schemas.content import ContentDTO, MediaAssetDTO
 from apps.content_service.storage.models import ContentRecord
 from scout_pipeline.models import Item
 
+PLACEHOLDER_SUMMARY_MARKERS = (
+    "点击查看原文",
+    "查看原文",
+    "阅读全文",
+    "read more",
+    "continue reading",
+)
+
 
 def _parse_rfc3339(value: str) -> datetime:
     normalized = value.strip()
@@ -29,6 +37,14 @@ def _format_rfc3339(value: datetime | None) -> str | None:
         return None
     dt = value.astimezone(timezone.utc)
     return dt.isoformat().replace("+00:00", "Z")
+
+
+def _is_placeholder_summary(value: str) -> bool:
+    normalized = (value or "").strip()
+    if not normalized:
+        return True
+    compact = "".join(normalized.split()).lower()
+    return any(marker.replace(" ", "").lower() in compact for marker in PLACEHOLDER_SUMMARY_MARKERS)
 
 
 def _encode_cursor(item: ContentRecord) -> str:
@@ -194,6 +210,8 @@ class ContentRepository:
         updated_at = datetime.now(timezone.utc)
         existing_sources = list(existing.sources or []) if existing else []
         existing_media = list(existing.media or []) if existing else []
+        existing_summary_text = (existing.summary_text or "").strip() if existing else ""
+        existing_body_text = (existing.body_text or "").strip() if existing else ""
         new_media = [
             {
                 "url": media.url,
@@ -204,12 +222,19 @@ class ContentRepository:
         ]
         merged_sources = list(dict.fromkeys(existing_sources + ([item.source] if item.source else [])))
         merged_media = list(dict.fromkeys((asset["url"], asset["media_type"]) for asset in existing_media + new_media))
+        incoming_summary_text = (item.description or "").strip()
+        if _is_placeholder_summary(incoming_summary_text) and not _is_placeholder_summary(existing_summary_text):
+            summary_text = existing_summary_text
+            body_text = existing_body_text
+        else:
+            summary_text = incoming_summary_text
+            body_text = ""
         return {
             "content_id": content_id,
             "title": (item.title or "").strip(),
             "canonical_url": (item.url or "").strip(),
-            "summary_text": (item.description or "").strip(),
-            "body_text": "",
+            "summary_text": summary_text,
+            "body_text": body_text,
             "published_at": published_at,
             "updated_at": updated_at,
             "language": None,
