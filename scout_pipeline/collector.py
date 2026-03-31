@@ -22,7 +22,6 @@ PLACEHOLDER_DESCRIPTION_MARKERS = (
     "read more",
     "continue reading",
 )
-DETAIL_FALLBACK_SOURCE_PREFIXES = ("36kr_", "infoq")
 DETAIL_EXCERPT_CHAR_LIMIT = 1200
 
 
@@ -67,11 +66,6 @@ def _is_placeholder_description(value: str) -> bool:
         return True
     compact = normalized.replace(" ", "").lower()
     return any(marker.replace(" ", "").lower() in compact for marker in PLACEHOLDER_DESCRIPTION_MARKERS)
-
-
-def _should_fetch_detail_fallback(source_name: str) -> bool:
-    lowered = (source_name or "").strip().lower()
-    return any(lowered.startswith(prefix) for prefix in DETAIL_FALLBACK_SOURCE_PREFIXES)
 
 
 def _extract_meta_description(soup: BeautifulSoup) -> str:
@@ -148,9 +142,9 @@ def _fetch_detail_description(item: Item) -> str:
 
 
 def _maybe_enrich_item_description(item: Item) -> None:
-    if not _should_fetch_detail_fallback(item.source):
-        return
     if not _is_placeholder_description(item.description):
+        return
+    if not item.url:
         return
     try:
         detail_description = _fetch_detail_description(item)
