@@ -253,6 +253,7 @@ Use this after:
 ### 6. Recurring delivery in OpenClaw
 
 For OpenClaw recurring delivery, prefer the native channel flow instead of shell cron + inbox.
+Because the platform's inbox/system parser may re-interpret markdown incorrectly, default recurring delivery should use the deterministic `deliver` command and send its output verbatim back to the current chat.
 
 Target shape:
 
@@ -261,18 +262,17 @@ openclaw cron add \
   --name "follow-scoutx-daily" \
   --cron "0 9 * * *" \
   --agent main \
-  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest`, read the JSON output, follow the included prompts and output_contract exactly, then return the final digest text to the current chat." \
+  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver`, then send the command output back to the current chat verbatim. Do not rewrite, summarize, or reformat it." \
   --announce \
   --channel last \
-  --expect-final \
   --timeout-seconds 120
 ```
 
 Important:
 
 - prefer `--announce --channel last`
-- use `prepare-digest` when you want prompt-controlled LLM remixing with a fixed schema
-- use `deliver` only as a deterministic raw fallback or debugging path
+- use `deliver` as the default recurring delivery path
+- use `prepare-digest` only when you explicitly need prompt-controlled LLM remixing and have confirmed the platform path does not re-parse or rewrite the result
 - keep inbox/file output only as fallback or debugging
 - after user confirmation, prefer `install-openclaw-cron --apply` instead of asking the user to copy a cron command manually
 

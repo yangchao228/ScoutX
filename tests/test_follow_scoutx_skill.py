@@ -97,9 +97,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
                 self.assertIn("openclaw cron add", command)
                 self.assertIn("--announce", command)
                 self.assertIn("--channel last", command)
-                self.assertIn("--expect-final", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
-                self.assertIn("prepare-digest", command)
+                self.assertIn("deliver", command)
+                self.assertNotIn("--expect-final", command)
 
     def test_parser_defaults_to_current_script_path_for_openclaw_cron_commands(self) -> None:
         parser = MODULE.build_parser()
@@ -130,9 +130,9 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("--announce", cron_args)
         self.assertIn("--channel", cron_args)
         self.assertIn("last", cron_args)
-        self.assertIn("--expect-final", cron_args)
+        self.assertNotIn("--expect-final", cron_args)
         self.assertIn(
-            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest`, read the JSON output, follow the included prompts and output_contract exactly, then return the final digest text to the current chat.",
+            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver`, then send the command output back to the current chat verbatim. Do not rewrite, summarize, or reformat it.",
             cron_args,
         )
 
