@@ -15,14 +15,25 @@ class RSSSource(BaseModel):
     type: Literal["rss"]
     name: str
     url: HttpUrl
+    slow_threshold_ms: int | None = None
 
 
 class HTMLSource(BaseModel):
     type: Literal["html"]
     name: str
     url: HttpUrl
+    slow_threshold_ms: int | None = None
     list_selector: str
     fields: Dict[str, FieldSelector]
+
+
+class JSONFeedSource(BaseModel):
+    type: Literal["json_feed"]
+    name: str
+    url: HttpUrl
+    slow_threshold_ms: int | None = None
+    fallback_urls: List[HttpUrl] = []
+    items_path: str = "items"
 
 
 class FilterConfig(BaseModel):
@@ -94,7 +105,7 @@ class PublisherConfig(BaseModel):
 
 class AppConfig(BaseModel):
     schedule: ScheduleConfig
-    sources: List[RSSSource | HTMLSource]
+    sources: List[RSSSource | HTMLSource | JSONFeedSource]
     filters: FilterConfig
     llm: LLMConfig
     media: MediaConfig

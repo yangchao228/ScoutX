@@ -3,16 +3,18 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+import os
 import re
 import time
-from typing import List
+from typing import Any, List
 from urllib.parse import urljoin
 
 import feedparser
 import requests
 from bs4 import BeautifulSoup
 
-from scout_pipeline.config import HTMLSource, RSSSource
+from scout_pipeline.config import HTMLSource, JSONFeedSource, RSSSource
 from scout_pipeline.models import Item, MediaAsset
 
 PLACEHOLDER_DESCRIPTION_MARKERS = (
@@ -23,6 +25,7 @@ PLACEHOLDER_DESCRIPTION_MARKERS = (
     "continue reading",
 )
 DETAIL_EXCERPT_CHAR_LIMIT = 1200
+JSON_FEED_EXCERPT_CHAR_LIMIT = 1200
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,13 @@ class FetchPolicy:
     attempts: int
     backoff_seconds: float
     retry_status_codes: tuple[int, ...] = (429, 500, 502, 503, 504)
+
+
+@dataclass(frozen=True)
+class JSONFeedCollectResult:
+    items: list[Item]
+    fetched_from_url: str
+    snapshot_payload: dict[str, Any]
 
 
 def _extract_entry_published_at(entry: object) -> str | None:
@@ -66,6 +76,10 @@ def _is_placeholder_description(value: str) -> bool:
         return True
     compact = normalized.replace(" ", "").lower()
     return any(marker.replace(" ", "").lower() in compact for marker in PLACEHOLDER_DESCRIPTION_MARKERS)
+
+
+def _detail_fallback_enabled() -> bool:
+    return os.getenv("SCOUTX_DETAIL_FALLBACK_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _extract_meta_description(soup: BeautifulSoup) -> str:
@@ -142,6 +156,8 @@ def _fetch_detail_description(item: Item) -> str:
 
 
 def _maybe_enrich_item_description(item: Item) -> None:
+    if not _detail_fallback_enabled():
+        return
     if not _is_placeholder_description(item.description):
         return
     if not item.url:
@@ -156,9 +172,116 @@ def _maybe_enrich_item_description(item: Item) -> None:
         item.raw["detail_fallback"] = "article_html"
 
 
-def _policy_for_source(source: RSSSource | HTMLSource) -> FetchPolicy:
+def _coerce_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    return str(value).strip()
+
+
+def _truncate_excerpt(value: str, *, limit: int) -> str:
+    text = _clean_text(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _parse_json_feed_published_at(value: Any) -> str | None:
+    text = _coerce_text(value)
+    if not text:
+        return None
+    if re.fullmatch(r"\d{10}", text):
+        return datetime.fromtimestamp(int(text), tz=timezone.utc).isoformat()
+    if re.fullmatch(r"\d{13}", text):
+        return datetime.fromtimestamp(int(text) / 1000, tz=timezone.utc).isoformat()
+    normalized = text.replace("Z", "+00:00") if text.endswith("Z") else text
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        for fmt in ("%b %d, %Y", "%B %d, %Y"):
+            try:
+                dt = datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def _resolve_json_items(payload: Any, items_path: str) -> list[dict[str, Any]]:
+    target = payload
+    normalized_path = (items_path or "").strip()
+    if normalized_path and normalized_path not in {".", "/"}:
+        for part in normalized_path.split("."):
+            key = part.strip()
+            if not key:
+                continue
+            if isinstance(target, dict) and key in target:
+                target = target[key]
+                continue
+            return []
+    if isinstance(target, list):
+        return [item for item in target if isinstance(item, dict)]
+    if isinstance(target, dict):
+        for key in ("items", "data", "entries"):
+            value = target.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _first_text(entry: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = entry.get(key)
+        text = _coerce_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _extract_json_media(entry: dict[str, Any]) -> list[MediaAsset]:
+    media: list[MediaAsset] = []
+    candidates: list[str] = []
+    for key in ("image", "image_url", "cover_image", "thumbnail", "thumbnail_url"):
+        value = _coerce_text(entry.get(key))
+        if value:
+            candidates.append(value)
+    raw_media = entry.get("media")
+    if isinstance(raw_media, list):
+        for item in raw_media:
+            if isinstance(item, dict):
+                value = _first_text(item, "url", "src", "href")
+            else:
+                value = _coerce_text(item)
+            if value:
+                candidates.append(value)
+    deduped = list(dict.fromkeys(candidates))
+    for value in deduped:
+        media.append(MediaAsset(url=value, media_type=_guess_media_type(value)))
+    return media
+
+
+def _candidate_urls(source: RSSSource | HTMLSource | JSONFeedSource) -> list[str]:
+    if isinstance(source, JSONFeedSource):
+        primary = str(source.url)
+        fallbacks = [str(url) for url in source.fallback_urls]
+        return list(dict.fromkeys([primary, *fallbacks]))
+    return [str(source.url)]
+
+
+def _policy_for_source(source: RSSSource | HTMLSource | JSONFeedSource, *, target_url: str | None = None) -> FetchPolicy:
     name = str(source.name).lower()
-    url = str(source.url).lower()
+    url = (target_url or str(source.url)).lower()
+    if isinstance(source, JSONFeedSource):
+        if "raw.githubusercontent.com" in url:
+            return FetchPolicy(connect_timeout=5, read_timeout=30, attempts=4, backoff_seconds=2.0)
+        return FetchPolicy(connect_timeout=5, read_timeout=20, attempts=3, backoff_seconds=1.5)
     is_36kr = name.startswith("36kr_") or "/36kr/" in url or "36kr.com" in url
     if is_36kr:
         return FetchPolicy(connect_timeout=5, read_timeout=45, attempts=3, backoff_seconds=2.0)
@@ -177,25 +300,27 @@ def _is_retryable_request_exception(exc: Exception, retry_status_codes: tuple[in
 
 
 def _fetch_response(
-    source: RSSSource | HTMLSource,
+    source: RSSSource | HTMLSource | JSONFeedSource,
     *,
     is_rss: bool,
+    target_url: str | None = None,
 ) -> requests.Response:
-    policy = _policy_for_source(source)
+    request_url = target_url or str(source.url)
+    policy = _policy_for_source(source, target_url=request_url)
     headers = _build_headers(is_rss=is_rss)
     last_exc: Exception | None = None
 
     for attempt in range(1, policy.attempts + 1):
         try:
             response = requests.get(
-                str(source.url),
+                request_url,
                 timeout=(policy.connect_timeout, policy.read_timeout),
                 headers=headers,
             )
             if response.status_code in policy.retry_status_codes and attempt < policy.attempts:
                 print(
                     "[collector][retry] "
-                    f"{source.name}: status={response.status_code} attempt={attempt}/{policy.attempts}"
+                    f"{source.name}: url={request_url} status={response.status_code} attempt={attempt}/{policy.attempts}"
                 )
                 time.sleep(policy.backoff_seconds * attempt)
                 continue
@@ -208,7 +333,7 @@ def _fetch_response(
                 detail = f"status={status_code}" if status_code is not None else exc.__class__.__name__
                 print(
                     "[collector][retry] "
-                    f"{source.name}: error={detail} attempt={attempt}/{policy.attempts}"
+                    f"{source.name}: url={request_url} error={detail} attempt={attempt}/{policy.attempts}"
                 )
                 time.sleep(policy.backoff_seconds * attempt)
                 continue
@@ -216,7 +341,7 @@ def _fetch_response(
 
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError(f"Failed to fetch source: {source.name}")
+    raise RuntimeError(f"Failed to fetch source: {source.name} ({request_url})")
 
 
 def _raise_invalid_rss_error(source: RSSSource, response: requests.Response) -> None:
@@ -298,6 +423,59 @@ def _guess_media_type(url: str) -> str:
     return "image"
 
 
+def _flatten_follow_builders_x_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for entry in entries:
+        tweets = entry.get("tweets")
+        if not isinstance(tweets, list):
+            continue
+        author_name = _first_text(entry, "name")
+        author_handle = _first_text(entry, "handle")
+        author_bio = _first_text(entry, "bio", "description", "summary")
+        author_label = " ".join(part for part in (author_name, f"(@{author_handle})" if author_handle else "") if part).strip()
+        for tweet in tweets:
+            if not isinstance(tweet, dict):
+                continue
+            text = _first_text(tweet, "text", "content", "body_text")
+            normalized_tweet = dict(tweet)
+            if text:
+                normalized_tweet.setdefault("title", _truncate_excerpt(text, limit=100))
+                normalized_tweet.setdefault("description", f"{author_label}: {text}" if author_label else text)
+            if author_name:
+                normalized_tweet.setdefault("author_name", author_name)
+            if author_handle:
+                normalized_tweet.setdefault("author_handle", author_handle)
+            if author_bio:
+                normalized_tweet.setdefault("author_bio", author_bio)
+            if tweet.get("createdAt") and not normalized_tweet.get("published_at"):
+                normalized_tweet["published_at"] = tweet.get("createdAt")
+            flattened.append(normalized_tweet)
+    return flattened
+
+
+def _normalize_json_feed_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if entries and all(isinstance(entry.get("tweets"), list) for entry in entries):
+        return _flatten_follow_builders_x_entries(entries)
+    return entries
+
+
+def _extract_json_description(entry: dict[str, Any]) -> str:
+    value = _first_text(
+        entry,
+        "summary_text",
+        "summary",
+        "description",
+        "content_text",
+        "transcript_excerpt",
+        "transcript",
+        "content",
+        "body_text",
+    )
+    if not value:
+        return ""
+    return _truncate_excerpt(value, limit=JSON_FEED_EXCERPT_CHAR_LIMIT)
+
+
 def collect_html(source: HTMLSource) -> List[Item]:
     response = _fetch_response(source, is_rss=False)
     soup = BeautifulSoup(response.text, "lxml")
@@ -347,12 +525,81 @@ def collect_html(source: HTMLSource) -> List[Item]:
     return items
 
 
-def collect_sources(sources: List[RSSSource | HTMLSource]) -> List[Item]:
+def collect_json_feed(source: JSONFeedSource) -> JSONFeedCollectResult:
+    last_error: Exception | None = None
+    for candidate_url in _candidate_urls(source):
+        try:
+            response = _fetch_response(source, is_rss=False, target_url=candidate_url)
+            payload = response.json()
+            entries = _normalize_json_feed_entries(_resolve_json_items(payload, source.items_path))
+            items: list[Item] = []
+            raw_items: list[dict[str, Any]] = []
+            for entry in entries:
+                title = _first_text(entry, "title", "name", "headline")
+                url = _first_text(entry, "url", "canonical_url", "link", "external_url")
+                description = _extract_json_description(entry)
+                published_at = _parse_json_feed_published_at(
+                    entry.get("published_at")
+                    or entry.get("publishedAt")
+                    or entry.get("published")
+                    or entry.get("date_published")
+                    or entry.get("created_at")
+                    or entry.get("createdAt")
+                    or entry.get("date")
+                )
+                comments = []
+                raw_comments = entry.get("comments")
+                if isinstance(raw_comments, list):
+                    comments = [_coerce_text(item) for item in raw_comments if _coerce_text(item)]
+                elif _coerce_text(raw_comments):
+                    comments = [_coerce_text(raw_comments)]
+                if not title and not url:
+                    continue
+                normalized_entry = dict(entry)
+                raw_items.append(normalized_entry)
+                items.append(
+                    Item(
+                        source=source.name,
+                        title=title,
+                        url=url,
+                        description=description,
+                        published_at=published_at,
+                        comments=comments,
+                        media=_extract_json_media(entry),
+                        raw={
+                            "json_item": normalized_entry,
+                            "fetched_from_url": str(getattr(response, "url", "") or candidate_url),
+                        },
+                    )
+                )
+            return JSONFeedCollectResult(
+                items=items,
+                fetched_from_url=str(getattr(response, "url", "") or candidate_url),
+                snapshot_payload={
+                    "source": source.name,
+                    "fetched_from_url": str(getattr(response, "url", "") or candidate_url),
+                    "items_path": source.items_path,
+                    "item_count": len(raw_items),
+                    "items": raw_items,
+                },
+            )
+        except (requests.RequestException, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            last_error = exc
+            print(f"[collector][warn] {source.name} candidate failed: url={candidate_url} error={exc}")
+            continue
+    if last_error is not None:
+        raise RuntimeError(f"JSON feed fetch failed for {source.name}: {last_error}") from last_error
+    raise RuntimeError(f"JSON feed fetch failed for {source.name}")
+
+
+def collect_sources(sources: List[RSSSource | HTMLSource | JSONFeedSource]) -> List[Item]:
     items: List[Item] = []
     for source in sources:
         try:
             if isinstance(source, RSSSource):
                 source_items = collect_rss(source)
+            elif isinstance(source, JSONFeedSource):
+                source_items = collect_json_feed(source).items
             else:
                 source_items = collect_html(source)
             items.extend(source_items)

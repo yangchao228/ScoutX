@@ -12,8 +12,9 @@ from apps.content_service.settings import load_settings
 from apps.content_service.storage.content_repository import ContentRepository, UpsertStats
 from apps.content_service.storage.runtime_state_repository import RuntimeStateRepository
 from apps.content_service.storage.source_repository import SourceRepository
-from scout_pipeline.collector import collect_html, collect_rss
-from scout_pipeline.config import HTMLSource, RSSSource
+from apps.content_service.storage.source_snapshot_repository import SourceSnapshotRepository
+from scout_pipeline.collector import collect_html, collect_json_feed, collect_rss
+from scout_pipeline.config import HTMLSource, JSONFeedSource, RSSSource
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,13 @@ class SourceRunResult:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class CollectedSourceBatch:
+    items: list
+    fetched_from_url: str | None = None
+    snapshot_payload: dict | None = None
+
+
 @dataclass
 class IngestionService:
     session: Session
@@ -47,6 +55,7 @@ class IngestionService:
         config = load_source_config()
         settings = load_settings()
         source_repository = SourceRepository(self.session)
+        snapshot_repository = SourceSnapshotRepository(self.session)
         source_repository.sync_source_configs(
             [source.model_dump(mode="json") for source in config.sources],
             schedule=config.schedule.cron,
@@ -63,15 +72,26 @@ class IngestionService:
         for source in config.sources:
             started = time.monotonic()
             try:
-                items = self._collect_single_source(source)
+                batch = self._collect_single_source(source)
+                items = batch.items
                 normalized_items = [normalize_content_item(item) for item in items if item.title or item.url]
                 stats = repository.upsert_items(normalized_items)
+                if batch.snapshot_payload is not None:
+                    snapshot_repository.save_latest_snapshot(
+                        source_name=source.name,
+                        fetched_from_url=batch.fetched_from_url,
+                        item_count=len(items),
+                        payload_json=batch.snapshot_payload,
+                    )
                 duration_ms = int((time.monotonic() - started) * 1000)
                 collected_count += len(items)
                 normalized_count += len(normalized_items)
                 created += stats.created
                 updated += stats.updated
-                if duration_ms >= settings.slow_source_threshold_ms:
+                if duration_ms >= _effective_slow_threshold_ms(
+                    source=source,
+                    default_threshold_ms=settings.slow_source_threshold_ms,
+                ):
                     slow_sources += 1
                 source_repository.mark_run_result(source.name, status="success", duration_ms=duration_ms)
                 source_runs.append(
@@ -131,11 +151,29 @@ class IngestionService:
             source_runs=source_runs,
         )
 
-    def _collect_single_source(self, source: RSSSource | HTMLSource):
+    def _collect_single_source(self, source: RSSSource | HTMLSource | JSONFeedSource) -> CollectedSourceBatch:
         if isinstance(source, RSSSource):
-            return collect_rss(source)
-        return collect_html(source)
+            return CollectedSourceBatch(items=collect_rss(source))
+        if isinstance(source, JSONFeedSource):
+            result = collect_json_feed(source)
+            return CollectedSourceBatch(
+                items=result.items,
+                fetched_from_url=result.fetched_from_url,
+                snapshot_payload=result.snapshot_payload,
+            )
+        return CollectedSourceBatch(items=collect_html(source))
 
 
 def utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _effective_slow_threshold_ms(
+    *,
+    source: RSSSource | HTMLSource | JSONFeedSource,
+    default_threshold_ms: int,
+) -> int:
+    configured = getattr(source, "slow_threshold_ms", None)
+    if isinstance(configured, int) and configured > 0:
+        return configured
+    return default_threshold_ms

@@ -2,6 +2,24 @@ schedule:
   cron: "0 8,12,16,20 * * *"
 
 sources:
+  - type: json_feed
+    name: "follow_builders_x_feed"
+    url: "https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-x.json"
+    fallback_urls:
+      - "https://cdn.jsdelivr.net/gh/zarazhangrui/follow-builders@main/feed-x.json"
+    items_path: "x"
+  - type: json_feed
+    name: "follow_good_builders_podcasts_feed"
+    url: "https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-podcasts.json"
+    fallback_urls:
+      - "https://cdn.jsdelivr.net/gh/zarazhangrui/follow-builders@main/feed-podcasts.json"
+    items_path: "podcasts"
+  - type: json_feed
+    name: "follow_good_builders_blogs_feed"
+    url: "https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-blogs.json"
+    fallback_urls:
+      - "https://cdn.jsdelivr.net/gh/zarazhangrui/follow-builders@main/feed-blogs.json"
+    items_path: "blogs"
   - type: rss
     name: "36kr_news"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/36kr/news"
@@ -20,6 +38,7 @@ sources:
   - type: rss
     name: "tmtpost_agi_column"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/tmtpost/column/6916385"
+    slow_threshold_ms: 30000
   - type: rss
     name: "qbitai_agent_tag"
     url: "${RSSHUB_BASE:http://127.0.0.1:1200}/qbitai/tag/%E6%99%BA%E8%83%BD%E4%BD%93"
