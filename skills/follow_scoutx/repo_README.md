@@ -48,19 +48,19 @@
 ### OpenClaw
 
 ```bash
-clawhub install follow_scoutx
+clawhub install follow-scoutx
 ```
 
 如果没有上架，也可以手动安装：
 
 ```bash
-git clone <your-skill-repo> ~/skills/follow_scoutx
+git clone <your-skill-repo> ~/skills/follow-scoutx
 ```
 
 ### Claude Code
 
 ```bash
-git clone <your-skill-repo> ~/.claude/skills/follow_scoutx
+git clone <your-skill-repo> ~/.claude/skills/follow-scoutx
 ```
 
 ## 第一次设置
@@ -137,9 +137,22 @@ skill 会把用户偏好保存在本地：
 
 1. ScoutX 后端集中采集和清洗内容
 2. 中心服务输出只读公共 feed
-3. skill 拉取 feed
+3. skill 在手动执行或定时任务触发时实时拉取 feed
 4. skill 根据本地偏好筛选内容
 5. agent 将结果组织成易读 digest
+
+也就是说：
+
+- `ScoutX` 提供中心内容源
+- `Follow ScoutX` 负责按时拉取、筛选和整理
+- `OpenClaw` 负责定时触发，并把结果通过明确配置的 channel/target 发回当前聊天或飞书
+
+它不是：
+
+- ScoutX 主动给每个用户推送消息
+- skill 自己维护一套独立内容库存
+
+OpenClaw 场景下，`follow_scoutx.py deliver` 只负责把 digest 输出到 stdout；真正的飞书发送由 OpenClaw cron 的 `--announce --channel feishu --to <target>` 完成。不要把飞书定时任务配置成 `delivery.mode=session` + `sessionTarget=isolated`，因为 isolated session 没有可继承的当前聊天通道。
 
 ## 当前仓库结构
 

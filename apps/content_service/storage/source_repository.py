@@ -31,6 +31,8 @@ def _to_source_dto(record: SourceRecord) -> SourceDTO:
         last_status=record.last_status,
         last_error=record.last_error,
         last_duration_ms=record.last_duration_ms,
+        last_success_at=_format_rfc3339(record.last_success_at),
+        consecutive_failures=int(record.consecutive_failures or 0),
     )
 
 
@@ -68,7 +70,13 @@ class SourceRepository:
             )
             self.session.execute(stmt)
 
-        stale_stmt = update(SourceRecord).values(enabled=False, updated_at=now)
+        stale_stmt = update(SourceRecord).values(
+            enabled=False,
+            last_status=None,
+            last_error=None,
+            last_duration_ms=None,
+            updated_at=now,
+        )
         if seen_names:
             stale_stmt = stale_stmt.where(SourceRecord.name.not_in(seen_names))
         self.session.execute(stale_stmt)
@@ -99,4 +107,9 @@ class SourceRepository:
         record.last_status = status
         record.last_error = error
         record.last_duration_ms = duration_ms
+        if status == "success":
+            record.last_success_at = now
+            record.consecutive_failures = 0
+        else:
+            record.consecutive_failures = int(record.consecutive_failures or 0) + 1
         record.updated_at = now

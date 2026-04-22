@@ -77,8 +77,25 @@ class SourceRecord(Base):
     schedule: Mapped[str] = mapped_column(Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class SourceSnapshotRecord(Base):
+    __tablename__ = "source_snapshots"
+
+    source_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("sources.source_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    fetched_from_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

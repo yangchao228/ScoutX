@@ -196,6 +196,41 @@ http://127.0.0.1:9100/v1/public/feed
 
 - [docs/follow_scoutx_local_e2e.md](docs/follow_scoutx_local_e2e.md)
 
+## 一键本地验收
+
+如果你想把“拉起整栈 -> provider one-shot -> consumer one-shot -> 状态检查 -> skill preview”一次跑完，现在可以直接用：
+
+```bash
+./scripts/verify_local_acceptance.sh
+```
+
+默认会执行：
+
+1. `docker compose build` 相关服务镜像
+2. 拉起 `postgres/rsshub/content-service/scoutx/healthcheck`
+3. 执行一次 `content-service` one-shot ingestion
+4. 执行一次 `ScoutX` consumer one-shot
+5. 校验 `/health`、`/v1/public/meta`、`/v1/public/feed`、`/v1/status`
+6. 校验 `scoutx-web /api/runtime-status`
+7. 执行 `check_runtime_health.py --notify-on none`
+8. 运行一次 `follow_scoutx preview`
+
+常用参数：
+
+```bash
+# 不重复 build 镜像
+SKIP_BUILD=1 ./scripts/verify_local_acceptance.sh
+
+# 跳过 provider one-shot
+SKIP_PROVIDER_RUN=1 ./scripts/verify_local_acceptance.sh
+
+# 跳过 consumer one-shot
+SKIP_CONSUMER_RUN=1 ./scripts/verify_local_acceptance.sh
+```
+
+脚本最后会输出一份 JSON summary。
+其中 `json_feed_empty_sources` 只表示“抓取成功但上游当前为空”，不会单独判定为验收失败。
+
 ## Follow ScoutX 独立导出
 
 如果你准备把 `skills/follow_scoutx` 单独拆成一个 skill 仓库，可以直接导出：

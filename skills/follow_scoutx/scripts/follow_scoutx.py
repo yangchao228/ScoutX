@@ -19,6 +19,7 @@ import urllib.request
 
 DEFAULT_FEED_URL = "http://192.144.134.94:9100/v1/public/feed"
 DEFAULT_TIMEOUT_SECONDS = 20
+DEFAULT_USER_AGENT = "FollowScoutXSkill/0.1 (+https://input.reai.group)"
 PROFILE_VERSION = 1
 DEFAULT_SUMMARY_BUDGET_CHARS = 1200
 STYLE_TO_SUMMARY_BUDGET = {
@@ -468,7 +469,10 @@ def fetch_feed(*, feed_url: str | None = None, feed_file: str | None = None) -> 
     )
     request = urllib.request.Request(
         url=target_url,
-        headers={"Accept": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "User-Agent": os.getenv("FOLLOW_SCOUTX_USER_AGENT", DEFAULT_USER_AGENT),
+        },
         method="GET",
     )
 
@@ -754,42 +758,19 @@ def build_openclaw_cron_command(
     script_path: str,
     name: str,
     agent: str,
+    session: str,
+    channel: str | None,
+    to: str | None,
     timeout_seconds: int,
 ) -> str:
     cron_expr = build_openclaw_cron_expression(profile)
+    resolved_channel, resolved_to = resolve_openclaw_delivery(profile, channel=channel, to=to)
     message = (
         f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver`, "
-        "then send the command output back to the current chat verbatim. "
+        "then return the command output verbatim as your final answer. "
         "Do not rewrite, summarize, or reformat it."
     )
-    return (
-        "openclaw cron add "
-        f"--name {shlex.quote(name)} "
-        f"--cron {shlex.quote(cron_expr)} "
-        f"--agent {shlex.quote(agent)} "
-        f"--message {shlex.quote(message)} "
-        "--announce "
-        "--channel last "
-        f"--timeout-seconds {timeout_seconds}"
-    )
-
-
-def build_openclaw_cron_args(
-    profile: dict[str, Any],
-    *,
-    feed_url: str,
-    script_path: str,
-    name: str,
-    agent: str,
-    timeout_seconds: int,
-) -> list[str]:
-    cron_expr = build_openclaw_cron_expression(profile)
-    message = (
-        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver`, "
-        "then send the command output back to the current chat verbatim. "
-        "Do not rewrite, summarize, or reformat it."
-    )
-    return [
+    parts = [
         "openclaw",
         "cron",
         "add",
@@ -799,14 +780,91 @@ def build_openclaw_cron_args(
         cron_expr,
         "--agent",
         agent,
+        "--session",
+        session,
         "--message",
         message,
         "--announce",
         "--channel",
-        "last",
-        "--timeout-seconds",
-        str(timeout_seconds),
+        resolved_channel,
     ]
+    if resolved_to:
+        parts.extend(["--to", resolved_to])
+    parts.extend(["--best-effort-deliver", "--exact", "--timeout-seconds", str(timeout_seconds)])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def build_openclaw_cron_args(
+    profile: dict[str, Any],
+    *,
+    feed_url: str,
+    script_path: str,
+    name: str,
+    agent: str,
+    session: str,
+    channel: str | None,
+    to: str | None,
+    timeout_seconds: int,
+) -> list[str]:
+    cron_expr = build_openclaw_cron_expression(profile)
+    resolved_channel, resolved_to = resolve_openclaw_delivery(profile, channel=channel, to=to)
+    message = (
+        f"Run `FOLLOW_SCOUTX_FEED_URL={feed_url} python3 {script_path} deliver`, "
+        "then return the command output verbatim as your final answer. "
+        "Do not rewrite, summarize, or reformat it."
+    )
+    args = [
+        "openclaw",
+        "cron",
+        "add",
+        "--name",
+        name,
+        "--cron",
+        cron_expr,
+        "--agent",
+        agent,
+        "--session",
+        session,
+        "--message",
+        message,
+        "--announce",
+        "--channel",
+        resolved_channel,
+    ]
+    if resolved_to:
+        args.extend(["--to", resolved_to])
+    args.extend(
+        [
+            "--best-effort-deliver",
+            "--exact",
+            "--timeout-seconds",
+            str(timeout_seconds),
+        ]
+    )
+    return args
+
+
+def resolve_openclaw_delivery(
+    profile: dict[str, Any],
+    *,
+    channel: str | None = None,
+    to: str | None = None,
+) -> tuple[str, str | None]:
+    delivery = profile.get("delivery") or {}
+    raw_channel = str(channel or delivery.get("channel") or "last").strip()
+    raw_to = str(to if to is not None else delivery.get("target") or "").strip()
+    if raw_channel in {"", "in_chat", "stdout", "current", "current_chat"}:
+        raw_channel = "last"
+    if raw_channel == "feishu" and raw_to.startswith("user:ou_"):
+        raw_to = raw_to.removeprefix("user:")
+    if raw_channel == "feishu" and raw_to.startswith("group:oc_"):
+        raw_to = raw_to.removeprefix("group:")
+    if raw_channel != "last" and not raw_to:
+        raise SystemExit(
+            "OpenClaw delivery target is required for external channels. "
+            "Pass --to or save it with configure --delivery-target."
+        )
+    return raw_channel, raw_to or None
 
 
 def command_show_openclaw_cron(args: argparse.Namespace) -> int:
@@ -823,13 +881,20 @@ def command_show_openclaw_cron(args: argparse.Namespace) -> int:
         script_path=args.script_path,
         name=args.name,
         agent=args.agent,
+        session=args.session,
+        channel=args.channel,
+        to=args.to,
         timeout_seconds=args.timeout_seconds,
     )
     if args.json:
+        channel, to = resolve_openclaw_delivery(profile, channel=args.channel, to=args.to)
         payload = {
             "name": args.name,
             "cron": build_openclaw_cron_expression(profile),
             "agent": args.agent,
+            "session": args.session,
+            "channel": channel,
+            "to": to,
             "feed_url": feed_url,
             "script_path": args.script_path,
             "timeout_seconds": args.timeout_seconds,
@@ -857,6 +922,9 @@ def command_install_openclaw_cron(args: argparse.Namespace) -> int:
         script_path=args.script_path,
         name=args.name,
         agent=args.agent,
+        session=args.session,
+        channel=args.channel,
+        to=args.to,
         timeout_seconds=args.timeout_seconds,
     )
 
@@ -869,6 +937,9 @@ def command_install_openclaw_cron(args: argparse.Namespace) -> int:
                 script_path=args.script_path,
                 name=args.name,
                 agent=args.agent,
+                session=args.session,
+                channel=args.channel,
+                to=args.to,
                 timeout_seconds=args.timeout_seconds,
             ),
         }
@@ -890,6 +961,9 @@ def command_install_openclaw_cron(args: argparse.Namespace) -> int:
             script_path=args.script_path,
             name=args.name,
             agent=args.agent,
+            session=args.session,
+            channel=args.channel,
+            to=args.to,
             timeout_seconds=args.timeout_seconds,
         ),
         "returncode": completed.returncode,
@@ -974,6 +1048,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     openclaw_cron_parser.add_argument("--agent", default="main")
+    openclaw_cron_parser.add_argument("--session", default="isolated")
+    openclaw_cron_parser.add_argument("--channel")
+    openclaw_cron_parser.add_argument("--to")
     openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
     openclaw_cron_parser.add_argument("--json", action="store_true")
     openclaw_cron_parser.set_defaults(handler=command_show_openclaw_cron)
@@ -989,6 +1066,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     install_openclaw_cron_parser.add_argument("--name", default="follow-scoutx-daily")
     install_openclaw_cron_parser.add_argument("--agent", default="main")
+    install_openclaw_cron_parser.add_argument("--session", default="isolated")
+    install_openclaw_cron_parser.add_argument("--channel")
+    install_openclaw_cron_parser.add_argument("--to")
     install_openclaw_cron_parser.add_argument("--timeout-seconds", type=int, default=120)
     install_openclaw_cron_parser.add_argument("--apply", action="store_true")
     install_openclaw_cron_parser.set_defaults(handler=command_install_openclaw_cron)

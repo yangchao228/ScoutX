@@ -64,3 +64,36 @@ CREATE_ARCHIVES=0 OVERWRITE=1 bash scripts/export_follow_scoutx_skill.sh
 3. 新建一个独立 Git 仓库
 4. 把 `service.json` 改成你真实的中心托管地址
 5. 再推到单独的 GitHub 仓库
+
+如果发布到 ClawHub，使用 URL-safe slug：
+
+```bash
+clawhub publish dist/follow_scoutx-skill \
+  --slug follow-scoutx \
+  --name "Follow ScoutX"
+```
+
+安装时使用：
+
+```bash
+clawhub install follow-scoutx
+```
+
+## 对外口径
+
+打包给测试方或用户时，建议固定使用下面这套描述：
+
+- `ScoutX` 负责集中采集、清洗和提供公共 feed
+- `Follow ScoutX skill` 负责读取用户偏好，并在手动执行或定时任务触发时实时从 ScoutX 拉取内容
+- `OpenClaw` 负责定时触发，并把整理后的 digest 通过明确配置的 channel/target 发回当前聊天或飞书
+
+不要描述成：
+
+- `ScoutX` 主动向每个用户推送消息
+- skill 自己维护一套独立内容库
+
+更准确的一句话是：
+
+`ScoutX 提供中心内容源，Follow ScoutX 在执行时实时拉取、筛选和整理，OpenClaw 负责定时触发和 channel 投递。`
+
+OpenClaw 飞书投递应使用 `follow_scoutx.py deliver` 的 stdout 作为 digest 内容，再通过 cron 的 `--announce --channel feishu --to <target>` 发送；不要把飞书任务配置成 `delivery.mode=session` + isolated session。

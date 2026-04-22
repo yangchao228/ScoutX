@@ -11,16 +11,40 @@ from apps.content_service.services.public_feed_cache import public_feed_cache
 from apps.content_service.settings import ContentServiceSettings
 from apps.content_service.storage.content_repository import ContentRepository
 
+PLACEHOLDER_SUMMARY_MARKERS = (
+    "点击查看原文",
+    "查看原文",
+    "阅读全文",
+    "read more",
+    "continue reading",
+)
+PUBLIC_SUMMARY_CHAR_LIMIT = 700
+
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _is_placeholder_summary(value: str) -> bool:
+    normalized = " ".join((value or "").strip().split())
+    if not normalized:
+        return True
+    compact = normalized.replace(" ", "").lower()
+    return any(marker.replace(" ", "").lower() in compact for marker in PLACEHOLDER_SUMMARY_MARKERS)
+
+
+def _public_summary_text(item: ContentDTO) -> str:
+    for candidate in (item.summary_text, item.body_text or ""):
+        if not _is_placeholder_summary(candidate):
+            return candidate.strip()[:PUBLIC_SUMMARY_CHAR_LIMIT].rstrip()
+    return ""
 
 
 def _map_feed_item(item: ContentDTO) -> PublicFeedItemDTO:
     return PublicFeedItemDTO(
         content_id=item.content_id,
         title=item.title,
-        summary_text=item.summary_text,
+        summary_text=_public_summary_text(item),
         canonical_url=item.canonical_url,
         published_at=item.published_at,
         updated_at=item.updated_at,

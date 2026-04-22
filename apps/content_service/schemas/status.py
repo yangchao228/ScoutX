@@ -8,11 +8,21 @@ class ContentStatsDTO(BaseModel):
     latest_updated_at: str | None = None
 
 
+class SourceSnapshotInfoDTO(BaseModel):
+    has_snapshot: bool = False
+    snapshot_fetched_at: str | None = None
+    snapshot_fetched_from_url: str | None = None
+    snapshot_item_count: int | None = None
+
+
 class SourceFailureDTO(BaseModel):
     name: str
     type: str
     last_run_at: str | None = None
+    last_success_at: str | None = None
     last_error: str | None = None
+    consecutive_failures: int = 0
+    snapshot: SourceSnapshotInfoDTO = Field(default_factory=SourceSnapshotInfoDTO)
 
 
 class SourceSlowDTO(BaseModel):
@@ -22,14 +32,35 @@ class SourceSlowDTO(BaseModel):
     last_duration_ms: int
 
 
+class SourceStaleDTO(BaseModel):
+    name: str
+    type: str
+    last_success_at: str | None = None
+    stale_minutes: int | None = None
+    consecutive_failures: int = 0
+    snapshot: SourceSnapshotInfoDTO = Field(default_factory=SourceSnapshotInfoDTO)
+
+
+class SourceEmptyDTO(BaseModel):
+    name: str
+    type: str
+    last_success_at: str | None = None
+    consecutive_failures: int = 0
+    snapshot: SourceSnapshotInfoDTO = Field(default_factory=SourceSnapshotInfoDTO)
+
+
 class SourceStatsDTO(BaseModel):
     total: int
     success: int
     failed: int
     slow: int
+    stale: int
+    empty: int
     never_run: int
     recent_failures: list[SourceFailureDTO] = Field(default_factory=list)
     recent_slow_sources: list[SourceSlowDTO] = Field(default_factory=list)
+    recent_stale_sources: list[SourceStaleDTO] = Field(default_factory=list)
+    recent_empty_sources: list[SourceEmptyDTO] = Field(default_factory=list)
 
 
 class SchedulerRunDTO(BaseModel):

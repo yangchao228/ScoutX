@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from apps.content_service.schemas.source import (
     FieldSelectorDTO,
     HTMLSourceValidationRequest,
+    JSONFeedSourceValidationRequest,
     RSSSourceValidationRequest,
     SourceValidationResultDTO,
 )
-from scout_pipeline.config import FieldSelector, HTMLSource, RSSSource
+from scout_pipeline.config import FieldSelector, HTMLSource, JSONFeedSource, RSSSource
 
 
 @dataclass(frozen=True)
@@ -18,10 +19,12 @@ class ValidationContext:
 
 
 def validate_source_payload(
-    request: RSSSourceValidationRequest | HTMLSourceValidationRequest,
+    request: RSSSourceValidationRequest | HTMLSourceValidationRequest | JSONFeedSourceValidationRequest,
 ) -> SourceValidationResultDTO:
     if isinstance(request, RSSSourceValidationRequest):
         return _validate_rss_request(request)
+    if isinstance(request, JSONFeedSourceValidationRequest):
+        return _validate_json_feed_request(request)
     return _validate_html_request(request)
 
 
@@ -51,6 +54,22 @@ def _validate_html_request(request: HTMLSourceValidationRequest) -> SourceValida
         return _error_result(context, exc, status_code=_extract_status_code(exc))
 
 
+def _validate_json_feed_request(request: JSONFeedSourceValidationRequest) -> SourceValidationResultDTO:
+    source = JSONFeedSource(
+        type="json_feed",
+        name=request.name,
+        url=request.url,
+        fallback_urls=request.fallback_urls,
+        items_path=request.items_path,
+    )
+    context = ValidationContext(name=request.name, source_type="json_feed")
+    try:
+        items = _collect_json_feed_items(source)
+        return _success_result(context, items, status_code=200)
+    except Exception as exc:
+        return _error_result(context, exc, status_code=_extract_status_code(exc))
+
+
 def _to_field_selector(value: FieldSelectorDTO) -> FieldSelector:
     return FieldSelector(selector=value.selector, attr=value.attr, multiple=value.multiple)
 
@@ -65,6 +84,12 @@ def _collect_html_items(source: HTMLSource):
     from scout_pipeline.collector import collect_html
 
     return collect_html(source)
+
+
+def _collect_json_feed_items(source: JSONFeedSource):
+    from scout_pipeline.collector import collect_json_feed
+
+    return collect_json_feed(source).items
 
 
 def _extract_status_code(exc: Exception) -> int | None:

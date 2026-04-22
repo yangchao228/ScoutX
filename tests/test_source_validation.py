@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from apps.content_service.schemas.source import HTMLSourceValidationRequest, RSSSourceValidationRequest
+from apps.content_service.schemas.source import (
+    HTMLSourceValidationRequest,
+    JSONFeedSourceValidationRequest,
+    RSSSourceValidationRequest,
+)
 from apps.content_service.services.source_validation import validate_source_payload
 from scout_pipeline.models import Item
 
@@ -48,6 +52,30 @@ class SourceValidationTest(unittest.TestCase):
         self.assertEqual(result.status_code, 403)
         self.assertEqual(result.item_count, 0)
         self.assertIn("403", result.message or "")
+
+    def test_validate_json_feed_success(self) -> None:
+        request = JSONFeedSourceValidationRequest(
+            type="json_feed",
+            name="x_primary_feed",
+            url="https://example.com/feed-x.json",
+            fallback_urls=["https://mirror.example.com/feed-x.json"],
+            items_path="items",
+        )
+        items = [
+            Item(
+                source="x_primary_feed",
+                title="Example title",
+                url="https://example.com/a",
+                description="summary",
+            )
+        ]
+        with patch("apps.content_service.services.source_validation._collect_json_feed_items", return_value=items):
+            result = validate_source_payload(request)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.type, "json_feed")
+        self.assertEqual(result.item_count, 1)
+        self.assertEqual(result.sample_titles, ["Example title"])
 
 
 if __name__ == "__main__":

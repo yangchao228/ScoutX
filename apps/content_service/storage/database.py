@@ -40,3 +40,33 @@ def ensure_content_service_schema() -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE sources
+                ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE sources
+                ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS source_snapshots (
+                    source_id TEXT PRIMARY KEY REFERENCES sources(source_id) ON DELETE CASCADE,
+                    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    fetched_from_url TEXT NULL,
+                    item_count INTEGER NOT NULL DEFAULT 0,
+                    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )

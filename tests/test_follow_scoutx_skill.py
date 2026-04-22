@@ -92,11 +92,17 @@ class FollowScoutXSkillTest(unittest.TestCase):
                     script_path="skills/follow_scoutx/scripts/follow_scoutx.py",
                     name="follow-scoutx-daily",
                     agent="main",
+                    session="isolated",
+                    channel=None,
+                    to=None,
                     timeout_seconds=120,
                 )
                 self.assertIn("openclaw cron add", command)
                 self.assertIn("--announce", command)
                 self.assertIn("--channel last", command)
+                self.assertIn("--session isolated", command)
+                self.assertIn("--best-effort-deliver", command)
+                self.assertIn("--exact", command)
                 self.assertIn("FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed", command)
                 self.assertIn("deliver", command)
                 self.assertNotIn("--expect-final", command)
@@ -116,6 +122,33 @@ class FollowScoutXSkillTest(unittest.TestCase):
         self.assertIn("operator setup incomplete", str(exc.exception))
         self.assertIn("should not be asked to provide a feed URL", str(exc.exception))
 
+    def test_fetch_feed_sets_explicit_user_agent(self) -> None:
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b'{"items":[]}'
+
+        seen_requests = []
+
+        def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+            seen_requests.append((request, timeout))
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"FOLLOW_SCOUTX_HOME": tmpdir}, clear=False):
+                with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                    payload = MODULE.fetch_feed(feed_url="https://input.reai.group/v1/public/feed")
+
+        self.assertEqual(payload, {"items": []})
+        request, timeout = seen_requests[0]
+        self.assertEqual(dict(request.header_items())["User-agent"], MODULE.DEFAULT_USER_AGENT)
+        self.assertEqual(timeout, MODULE.DEFAULT_TIMEOUT_SECONDS)
+
     def test_build_openclaw_cron_args_matches_command_intent(self) -> None:
         profile = MODULE.default_profile()
         cron_args = MODULE.build_openclaw_cron_args(
@@ -124,17 +157,69 @@ class FollowScoutXSkillTest(unittest.TestCase):
             script_path="skills/follow_scoutx/scripts/follow_scoutx.py",
             name="follow-scoutx-daily",
             agent="main",
+            session="isolated",
+            channel=None,
+            to=None,
             timeout_seconds=120,
         )
         self.assertEqual(cron_args[:3], ["openclaw", "cron", "add"])
         self.assertIn("--announce", cron_args)
         self.assertIn("--channel", cron_args)
         self.assertIn("last", cron_args)
+        self.assertIn("--session", cron_args)
+        self.assertIn("isolated", cron_args)
+        self.assertIn("--best-effort-deliver", cron_args)
+        self.assertIn("--exact", cron_args)
         self.assertNotIn("--expect-final", cron_args)
         self.assertIn(
-            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver`, then send the command output back to the current chat verbatim. Do not rewrite, summarize, or reformat it.",
+            "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver`, then return the command output verbatim as your final answer. Do not rewrite, summarize, or reformat it.",
             cron_args,
         )
+
+    def test_build_openclaw_cron_args_uses_explicit_feishu_delivery(self) -> None:
+        profile = MODULE.default_profile()
+        profile["delivery"]["channel"] = "feishu"
+        profile["delivery"]["target"] = "ou_fd09e69bb9c4541712608fd095fb6da4"
+
+        cron_args = MODULE.build_openclaw_cron_args(
+            profile,
+            feed_url="http://192.144.134.94:9100/v1/public/feed",
+            script_path="/root/work/ScoutX/skills/follow_scoutx/scripts/follow_scoutx.py",
+            name="follow-scoutx-daily",
+            agent="main",
+            session="isolated",
+            channel=None,
+            to=None,
+            timeout_seconds=180,
+        )
+
+        self.assertIn("--announce", cron_args)
+        self.assertIn("--channel", cron_args)
+        self.assertIn("feishu", cron_args)
+        self.assertIn("--to", cron_args)
+        self.assertIn("ou_fd09e69bb9c4541712608fd095fb6da4", cron_args)
+        self.assertIn("--session", cron_args)
+        self.assertIn("isolated", cron_args)
+
+    def test_feishu_delivery_normalizes_legacy_user_prefix(self) -> None:
+        profile = MODULE.default_profile()
+        profile["delivery"]["channel"] = "feishu"
+        profile["delivery"]["target"] = "user:ou_fd09e69bb9c4541712608fd095fb6da4"
+
+        channel, to = MODULE.resolve_openclaw_delivery(profile)
+
+        self.assertEqual(channel, "feishu")
+        self.assertEqual(to, "ou_fd09e69bb9c4541712608fd095fb6da4")
+
+    def test_external_openclaw_channel_requires_target(self) -> None:
+        profile = MODULE.default_profile()
+        profile["delivery"]["channel"] = "feishu"
+        profile["delivery"]["target"] = ""
+
+        with self.assertRaises(SystemExit) as ctx:
+            MODULE.resolve_openclaw_delivery(profile)
+
+        self.assertIn("delivery target is required", str(ctx.exception))
 
     def test_render_digest_uses_full_text_template(self) -> None:
         profile = MODULE.default_profile()

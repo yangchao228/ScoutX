@@ -1,5 +1,5 @@
 ---
-name: follow_scoutx
+name: follow-scoutx
 description: Installable digest skill for OpenClaw or Claude Code. Use when the user wants a personalized ScoutX briefing with conversational setup, local preference storage, and minimal end-user configuration.
 ---
 
@@ -13,7 +13,7 @@ Use this skill to give the user a personalized ScoutX digest with the same produ
 - the user's preferences are stored locally
 - each manual run or scheduled run pulls fresh content from the ScoutX public feed at execution time
 - the user should not be asked for backend URLs or raw API tokens during normal setup
-- in OpenClaw, recurring delivery should inherit the current chat channel via `--announce --channel last`
+- in OpenClaw, recurring delivery should output the digest to stdout and use `--announce --channel <channel> --to <target>` for the actual chat/channel delivery
 
 ## When to use
 
@@ -51,7 +51,7 @@ The end user should not configure:
 
 Developer-only overrides may exist in the helper script, but do not surface them to normal users unless you are explicitly debugging the skill itself.
 
-In OpenClaw, do not ask the user to choose a delivery channel unless they explicitly want to override the default behavior. The default delivery path should be the current OpenClaw chat channel.
+In OpenClaw, treat `delivery.channel=in_chat` as stdout output delivered by OpenClaw to the current channel. For Feishu or any external channel, use an explicit `delivery.channel` and `delivery.target` rather than relying on `last`.
 
 If the bundled `service.json` still points to a placeholder domain such as `*.example.com`, that is an operator packaging problem, not an end-user setup problem. In that case:
 
@@ -88,7 +88,7 @@ Important files:
 Run:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py configure
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure
 ```
 
 This creates the local directory and prompt files if they do not exist yet.
@@ -104,6 +104,13 @@ Ask only for the user-facing preferences:
 - summary style
 
 In OpenClaw, assume delivery is the current chat channel unless the user explicitly asks for a different target.
+If the user wants Feishu delivery, save the exact channel and target:
+
+```bash
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure \
+  --delivery-channel feishu \
+  --delivery-target "ou_xxx"
+```
 
 Translate conversational answers into the helper script arguments.
 
@@ -112,13 +119,13 @@ Translate conversational answers into the helper script arguments.
 Use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py configure ...
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure ...
 ```
 
 Examples:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py configure \
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure \
   --frequency daily \
   --time 09:00 \
   --language zh-CN \
@@ -130,12 +137,13 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py configure \
 ```
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py configure \
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure \
   --frequency weekly \
   --days mon,thu \
   --time 09:00 \
   --language bilingual \
   --delivery-channel feishu \
+  --delivery-target "ou_xxx" \
   --topics "AI Agent,模型发布"
 ```
 
@@ -144,7 +152,7 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py configure \
 Use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py show-profile
+python3 skills/follow-scoutx/scripts/follow_scoutx.py show-profile
 ```
 
 ### 4.1 Show bundled service config
@@ -152,7 +160,7 @@ python3 skills/follow_scoutx/scripts/follow_scoutx.py show-profile
 Use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py show-service
+python3 skills/follow-scoutx/scripts/follow_scoutx.py show-service
 ```
 
 This is for debugging or operator verification, not for normal end-user setup.
@@ -162,7 +170,7 @@ This is for debugging or operator verification, not for normal end-user setup.
 Use only when the current installation needs a specific feed endpoint, such as a temporary public IP before the final domain is ready.
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py configure-service \
+python3 skills/follow-scoutx/scripts/follow_scoutx.py configure-service \
   --feed-url "http://192.144.134.94:9100/v1/public/feed" \
   --meta-url "http://192.144.134.94:9100/v1/public/meta"
 ```
@@ -180,7 +188,7 @@ Do not ask normal users to do this unless you are acting as the operator of that
 Use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py preview
+python3 skills/follow-scoutx/scripts/follow_scoutx.py preview
 ```
 
 If the backend feed is not available yet, explain that setup is complete but the central feed endpoint is not reachable.
@@ -192,7 +200,7 @@ If the configured endpoint is obviously still a placeholder, explain that the pa
 When the result should be remixed by the agent with stable prompt control, use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py prepare-digest
+python3 skills/follow-scoutx/scripts/follow_scoutx.py prepare-digest
 ```
 
 This returns one JSON payload containing:
@@ -209,7 +217,7 @@ Use this path when OpenClaw should produce the final message text with LLM help.
 When the result is meant to be sent back to the current OpenClaw chat channel, use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver
+python3 skills/follow-scoutx/scripts/follow_scoutx.py deliver
 ```
 
 This returns a deterministic plain-text digest directly from the selected ScoutX items.
@@ -225,12 +233,13 @@ Important behavior:
 When the user wants recurring delivery in OpenClaw, use:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py show-openclaw-cron
+python3 skills/follow-scoutx/scripts/follow_scoutx.py show-openclaw-cron
 ```
 
 This prints a recommended `openclaw cron add` command derived from:
 
 - the saved schedule in `profile.json`
+- the saved `delivery.channel` and `delivery.target`
 - the current local service override in `~/.follow_scoutx/service.json`
 
 If the installation still relies on a temporary public IP, first run `configure-service`, then use `show-openclaw-cron`.
@@ -240,7 +249,7 @@ If the installation still relies on a temporary public IP, first run `configure-
 Once setup is confirmed, you can create the OpenClaw cron job directly:
 
 ```bash
-python3 skills/follow_scoutx/scripts/follow_scoutx.py install-openclaw-cron --apply
+python3 skills/follow-scoutx/scripts/follow_scoutx.py install-openclaw-cron --apply
 ```
 
 Without `--apply`, the command returns a dry-run JSON payload for inspection.
@@ -253,24 +262,49 @@ Use this after:
 ### 6. Recurring delivery in OpenClaw
 
 For OpenClaw recurring delivery, prefer the native channel flow instead of shell cron + inbox.
-Because the platform's inbox/system parser may re-interpret markdown incorrectly, default recurring delivery should use the deterministic `deliver` command and send its output verbatim back to the current chat.
+Because the platform's inbox/system parser may re-interpret markdown incorrectly, default recurring delivery should use the deterministic `deliver` command and return its stdout verbatim as the agent's final answer. OpenClaw should then announce that final answer to the configured channel.
 
-Target shape:
+For OpenClaw, `delivery.method=stdout` is a local skill preference: it means `follow_scoutx.py deliver` writes the digest to stdout. It is not the Feishu transport. Feishu transport still requires OpenClaw cron delivery via `--announce --channel feishu --to <target>`.
+
+Do not use `delivery.mode=session` with `--session isolated` for Feishu delivery. Isolated sessions do not have a previous chat channel to inherit, and this can fail with "Channel is required".
+
+Target shape for the current chat:
 
 ```bash
 openclaw cron add \
   --name "follow-scoutx-daily" \
   --cron "0 9 * * *" \
+  --session isolated \
   --agent main \
-  --message "Run `python3 skills/follow_scoutx/scripts/follow_scoutx.py deliver`, then send the command output back to the current chat verbatim. Do not rewrite, summarize, or reformat it." \
+  --message "Run `python3 skills/follow-scoutx/scripts/follow_scoutx.py deliver`, then return the command output verbatim as your final answer. Do not rewrite, summarize, or reformat it." \
   --announce \
   --channel last \
+  --best-effort-deliver \
+  --exact \
   --timeout-seconds 120
+```
+
+Target shape for Feishu:
+
+```bash
+openclaw cron add \
+  --name "follow-scoutx-daily" \
+  --cron "0 9 * * *" \
+  --session isolated \
+  --agent main \
+  --message "Run `FOLLOW_SCOUTX_FEED_URL=http://192.144.134.94:9100/v1/public/feed python3 /root/work/ScoutX/skills/follow-scoutx/scripts/follow_scoutx.py deliver`, then return the command output verbatim as your final answer. Do not rewrite, summarize, or reformat it." \
+  --announce \
+  --channel feishu \
+  --to "ou_xxx" \
+  --best-effort-deliver \
+  --exact \
+  --timeout-seconds 180
 ```
 
 Important:
 
-- prefer `--announce --channel last`
+- prefer exact channel delivery for OpenClaw cron jobs; use `--channel last` only when the current chat context is known to be available
+- for Feishu, always pass `--channel feishu --to <target>` with a raw `ou_...` user open_id or `oc_...` group chat_id
 - use `deliver` as the default recurring delivery path
 - use `prepare-digest` only when you explicitly need prompt-controlled LLM remixing and have confirmed the platform path does not re-parse or rewrite the result
 - keep inbox/file output only as fallback or debugging

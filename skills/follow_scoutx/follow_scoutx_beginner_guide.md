@@ -14,19 +14,19 @@
 ### OpenClaw
 
 ```bash
-clawhub install follow_scoutx
+clawhub install follow-scoutx
 ```
 
 如果没有上架，也可以手动安装：
 
 ```bash
-git clone <skill-repo> ~/skills/follow_scoutx
+git clone <skill-repo> ~/skills/follow-scoutx
 ```
 
 ### Claude Code
 
 ```bash
-git clone <skill-repo> ~/.claude/skills/follow_scoutx
+git clone <skill-repo> ~/.claude/skills/follow-scoutx
 ```
 
 ## 第一次怎么用

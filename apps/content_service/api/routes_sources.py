@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from apps.content_service.schemas.common import DataEnvelope
 from apps.content_service.schemas.source import (
     HTMLSourceValidationRequest,
+    JSONFeedSourceValidationRequest,
     RSSSourceValidationRequest,
     SourceDTO,
     SourceValidationResultDTO,
@@ -32,7 +33,7 @@ def list_sources(
 
 @router.post("/validate", response_model=DataEnvelope[SourceValidationResultDTO])
 def validate_source(
-    request: RSSSourceValidationRequest | HTMLSourceValidationRequest,
+    request: RSSSourceValidationRequest | HTMLSourceValidationRequest | JSONFeedSourceValidationRequest,
     service: SourceService = Depends(get_source_service),
 ) -> DataEnvelope[SourceValidationResultDTO]:
     return DataEnvelope(data=service.validate_source(request))

@@ -25,6 +25,21 @@ class HTMLSourceValidationRequest(BaseModel):
     fields: dict[str, FieldSelectorDTO] = Field(default_factory=dict)
 
 
+class JSONFeedSourceValidationRequest(BaseModel):
+    type: Literal["json_feed"]
+    name: str
+    url: str
+    fallback_urls: list[str] = Field(default_factory=list)
+    items_path: str = "items"
+
+
+class SourceSnapshotInfoDTO(BaseModel):
+    has_snapshot: bool = False
+    snapshot_fetched_at: str | None = None
+    snapshot_fetched_from_url: str | None = None
+    snapshot_item_count: int | None = None
+
+
 class SourceDTO(BaseModel):
     source_id: str
     name: str
@@ -35,6 +50,9 @@ class SourceDTO(BaseModel):
     last_status: str | None = None
     last_error: str | None = None
     last_duration_ms: int | None = None
+    last_success_at: str | None = None
+    consecutive_failures: int = 0
+    snapshot: SourceSnapshotInfoDTO = Field(default_factory=SourceSnapshotInfoDTO)
 
 
 class SourceValidationResultDTO(BaseModel):
